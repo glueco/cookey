@@ -51,12 +51,16 @@ This is why many promising AI tools either:
 
 Your Gateway acts as a **secure proxy** between applications and your API providers. You store your API keys once, then grant apps **controlled, time-limited access** through the gateway.
 
-```
-┌─────────────┐        ┌─────────────────┐        ┌─────────────────┐
-│   Your App  │ ──────▶│  Your Gateway   │ ──────▶│  OpenAI/Groq/   │
-│             │◀────── │  (with your     │◀────── │  Gemini/etc     │
-│  (no keys)  │        │   API keys)     │        │                 │
-└─────────────┘        └─────────────────┘        └─────────────────┘
+```mermaid
+graph LR
+    A[Your App<br/>no keys stored] -->|PoP-signed request| B[Your Gateway<br/>with API keys]
+    B -->|proxied request| C[OpenAI/Groq/<br/>Gemini/Resend]
+    C -->|response| B
+    B -->|response| A
+    
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style B fill:#fff3e0,stroke:#f57c00,stroke-width:3px
+    style C fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 ```
 
 ### What You Get
@@ -256,6 +260,22 @@ const completion = await openai.chat.completions.create({
 
 Glueco Gateway uses a **plug-and-play plugin system**. Each provider (OpenAI, Groq, Gemini, Resend) is a self-contained plugin package that can be enabled or disabled independently.
 
+```mermaid
+flowchart TD
+    A[proxy.plugins.ts] -->|enables/disables| B[Plugin Packages]
+    B --> C[plugin-llm-openai]
+    B --> D[plugin-llm-groq]
+    B --> E[plugin-llm-gemini]
+    B --> F[plugin-mail-resend]
+    
+    style A fill:#fff3e0,stroke:#f57c00,stroke-width:3px
+    style B fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style C fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
+    style D fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
+    style E fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
+    style F fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
+```
+
 ### How Plugins Work
 
 - **Modular by design** — Add or remove providers without touching core gateway code
@@ -263,16 +283,36 @@ Glueco Gateway uses a **plug-and-play plugin system**. Each provider (OpenAI, Gr
 - **Schema-first enforcement** — Plugins define validation and policy rules declaratively
 - **Easy to extend** — Create custom plugins for any API using the template
 
-### Enabling Plugins
+### Enabling/Disabling Plugins
 
-Edit `proxy.plugins.ts` at the root:
+**Location:** `proxy.plugins.ts` (repository root)
+
+To enable or disable a plugin, simply edit this file and set the plugin to `true` (enabled) or `false` (disabled):
 
 ```typescript
 export default {
-  "llm:groq": true,
-  "llm:openai": true,
-  "llm:gemini": true,
-  "mail:resend": true,
+  "llm:groq": true,      // ✅ Enabled - Groq LLM available
+  "llm:openai": true,    // ✅ Enabled - OpenAI GPT available
+  "llm:gemini": false,   // ❌ Disabled - Gemini not available
+  "mail:resend": true,   // ✅ Enabled - Resend email available
+};
+```
+
+**Steps to enable/disable a plugin:**
+
+1. Open `proxy.plugins.ts` in the root directory
+2. Change `true` to `false` (or vice versa) for the plugin you want to toggle
+3. Restart your development server (`npm run dev`)
+4. The gateway will only expose enabled plugins to connected apps
+
+**Example:** To disable OpenAI and enable only Groq:
+
+```typescript
+export default {
+  "llm:groq": true,      // Keep Groq
+  "llm:openai": false,   // Turn off OpenAI
+  "llm:gemini": false,   // Keep Gemini off
+  "mail:resend": true,   // Keep email
 };
 ```
 
