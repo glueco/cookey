@@ -134,16 +134,40 @@ cd gateway
 # Install dependencies
 npm install
 
-# Set up environment (copy and edit .env)
+# Set up environment variables
 cd apps/proxy
 cp .env.example .env
+# Edit .env and configure required values (see below)
+
+# Generate encryption key
+# Run this and copy the output to MASTER_KEY in .env:
+openssl rand -base64 32
+
+# Return to root directory
+cd ../..
 
 # Run database migrations
-npx prisma migrate dev
+npm run db:migrate
 
-# Start development server
+# Start development server (runs both gateway and demo app)
 npm run dev
 ```
+
+**Required Environment Variables** (in `apps/proxy/.env`):
+
+- `DATABASE_URL` - PostgreSQL connection string (e.g., local instance or [Neon](https://neon.tech))
+- `KV_REST_API_URL` - Redis/Upstash REST API URL
+- `KV_REST_API_TOKEN` - Redis/Upstash token
+- `MASTER_KEY` - Encryption key (generate with `openssl rand -base64 32`)
+- `GATEWAY_URL` - Gateway URL (use `http://localhost:3000` for local dev)
+
+### Common Issues
+
+- **Migration fails**: Ensure `DATABASE_URL` is set correctly and PostgreSQL is running
+- **Redis connection errors**: Verify `KV_REST_API_URL` and `KV_REST_API_TOKEN` are correct
+- **Port 3000 in use**: Kill existing process or change port in Next.js config
+- **Module not found**: Run `npm install` from root directory, not from `apps/proxy`
+- **Build errors**: Ensure Node.js version >=18.0.0 (`node --version`)
 
 ---
 
