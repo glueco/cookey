@@ -1,6 +1,6 @@
 {
   "name": "@glueco/proxy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Personal Resource Gateway - Proxy Server",
   "private": true,
   "scripts": {

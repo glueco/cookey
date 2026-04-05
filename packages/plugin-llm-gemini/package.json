@@ -1,6 +1,6 @@
 {
   "name": "@glueco/plugin-llm-gemini",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "description": "Google Gemini LLM plugin for Personal Resource Gateway",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -41,13 +41,13 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@glueco/sdk": "^0.3.0",
+    "@glueco/sdk": "^0.4.0",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3"
   },
   "peerDependencies": {
     "@glueco/shared": "^0.3.1",
-    "@glueco/sdk": "^0.3.0"
+    "@glueco/sdk": "^0.4.0"
   },
   "peerDependenciesMeta": {
     "@glueco/sdk": {
