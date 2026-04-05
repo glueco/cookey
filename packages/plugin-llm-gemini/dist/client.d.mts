@@ -81,16 +81,15 @@ interface GeminiClient {
  * @example
  * ```ts
  * import { gemini } from "@glueco/plugin-llm-gemini/client";
- * import { GatewayClient } from "@glueco/sdk";
+ * import { createTransport } from "@glueco/sdk";
  *
- * // Setup
- * const gatewayClient = new GatewayClient({
- *   keyStorage: new FileKeyStorage('./.gateway/keys.json'),
- *   configStorage: new FileConfigStorage('./.gateway/config.json'),
+ * // Create transport (uses GLUECO_PRIVATE_KEY from env)
+ * const transport = createTransport({
+ *   proxyUrl: "https://gateway.example.com",
+ *   appId: "app_abc123",
  * });
  *
- * // Get transport and create typed client
- * const transport = await gatewayClient.getTransport();
+ * // Create typed client
  * const geminiClient = gemini(transport);
  *
  * // Use with full type safety

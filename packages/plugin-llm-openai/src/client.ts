@@ -9,10 +9,12 @@
 // Usage:
 // ```ts
 // import { openai } from "@glueco/plugin-llm-openai/client";
-// import { GatewayClient } from "@glueco/sdk";
+// import { createTransport } from "@glueco/sdk";
 //
-// const client = new GatewayClient({ ... });
-// const transport = await client.getTransport();
+// const transport = createTransport({
+//   proxyUrl: "...",
+//   appId: "...",
+// });
 // const openaiClient = openai(transport);
 //
 // const response = await openaiClient.chatCompletions({
@@ -137,16 +139,15 @@ export interface OpenAIClient {
  * @example
  * ```ts
  * import { openai } from "@glueco/plugin-llm-openai/client";
- * import { GatewayClient } from "@glueco/sdk";
+ * import { createTransport } from "@glueco/sdk";
  *
- * // Setup
- * const gatewayClient = new GatewayClient({
- *   keyStorage: new FileKeyStorage('./.gateway/keys.json'),
- *   configStorage: new FileConfigStorage('./.gateway/config.json'),
+ * // Create transport (uses GLUECO_PRIVATE_KEY from env)
+ * const transport = createTransport({
+ *   proxyUrl: "https://gateway.example.com",
+ *   appId: "app_abc123",
  * });
  *
- * // Get transport and create typed client
- * const transport = await gatewayClient.getTransport();
+ * // Create typed client
  * const openaiClient = openai(transport);
  *
  * // Use with full type safety

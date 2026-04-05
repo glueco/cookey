@@ -61,7 +61,7 @@ declare const ChatMessageSchema: z.ZodObject<{
     }>, "many">>;
     tool_call_id: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    role: "system" | "user" | "assistant" | "tool";
+    role: "user" | "system" | "assistant" | "tool";
     content: string | {
         type: string;
         text?: string | undefined;
@@ -81,7 +81,7 @@ declare const ChatMessageSchema: z.ZodObject<{
     }[] | undefined;
     tool_call_id?: string | undefined;
 }, {
-    role: "system" | "user" | "assistant" | "tool";
+    role: "user" | "system" | "assistant" | "tool";
     content: string | {
         type: string;
         text?: string | undefined;
@@ -165,7 +165,7 @@ declare const ChatCompletionRequestSchema: z.ZodObject<{
         }>, "many">>;
         tool_call_id: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
-        role: "system" | "user" | "assistant" | "tool";
+        role: "user" | "system" | "assistant" | "tool";
         content: string | {
             type: string;
             text?: string | undefined;
@@ -185,7 +185,7 @@ declare const ChatCompletionRequestSchema: z.ZodObject<{
         }[] | undefined;
         tool_call_id?: string | undefined;
     }, {
-        role: "system" | "user" | "assistant" | "tool";
+        role: "user" | "system" | "assistant" | "tool";
         content: string | {
             type: string;
             text?: string | undefined;
@@ -277,7 +277,7 @@ declare const ChatCompletionRequestSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     model: string;
     messages: {
-        role: "system" | "user" | "assistant" | "tool";
+        role: "user" | "system" | "assistant" | "tool";
         content: string | {
             type: string;
             text?: string | undefined;
@@ -329,7 +329,7 @@ declare const ChatCompletionRequestSchema: z.ZodObject<{
 }, {
     model: string;
     messages: {
-        role: "system" | "user" | "assistant" | "tool";
+        role: "user" | "system" | "assistant" | "tool";
         content: string | {
             type: string;
             text?: string | undefined;
@@ -591,8 +591,8 @@ declare const ChatCompletionResponseSchema: z.ZodObject<{
     }>>;
 }, "strip", z.ZodTypeAny, {
     object: "chat.completion";
-    id: string;
     model: string;
+    id: string;
     created: number;
     choices: {
         message: {
@@ -617,8 +617,8 @@ declare const ChatCompletionResponseSchema: z.ZodObject<{
     } | undefined;
 }, {
     object: "chat.completion";
-    id: string;
     model: string;
+    id: string;
     created: number;
     choices: {
         message: {
@@ -745,8 +745,8 @@ declare const ChatCompletionChunkSchema: z.ZodObject<{
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
     object: "chat.completion.chunk";
-    id: string;
     model: string;
+    id: string;
     created: number;
     choices: {
         index: number;
@@ -767,8 +767,8 @@ declare const ChatCompletionChunkSchema: z.ZodObject<{
     }[];
 }, {
     object: "chat.completion.chunk";
-    id: string;
     model: string;
+    id: string;
     created: number;
     choices: {
         index: number;

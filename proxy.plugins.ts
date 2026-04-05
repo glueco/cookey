@@ -14,6 +14,7 @@ const enabledPlugins = [
   "@glueco/plugin-llm-groq",
   "@glueco/plugin-llm-gemini",
   "@glueco/plugin-llm-openai",
+  "@glueco/plugin-llm-anthropic",
   "@glueco/plugin-mail-resend",
   // Add more plugins here:
   // "@someone/plugin-storage-s3",

@@ -4,7 +4,7 @@ import {
   getPathWithQuery,
   POP_VERSION,
 } from "@glueco/shared";
-import { sign, KeyPair } from "./keys";
+import { loadSeedFromEnv, signToBase64Url, base64UrlEncode, generateNonce } from "./keys";
 import { GatewayError, parseGatewayError } from "./errors";
 
 // ============================================
@@ -19,8 +19,8 @@ export interface GatewayFetchOptions {
   /** Gateway/proxy URL */
   proxyUrl: string;
 
-  /** Keypair for signing */
-  keyPair: KeyPair;
+  /** Optional: Ed25519 seed bytes (if not provided, uses GLUECO_PRIVATE_KEY env) */
+  seed?: Uint8Array;
 
   /** Optional base fetch function (for testing) */
   baseFetch?: typeof fetch;
@@ -58,8 +58,10 @@ export type GatewayFetch = (
  * });
  */
 export function createGatewayFetch(options: GatewayFetchOptions): GatewayFetch {
-  const { appId, proxyUrl, keyPair, baseFetch, throwOnError = false } = options;
+  const { appId, proxyUrl, seed, baseFetch, throwOnError = false } = options;
 
+  // Use provided seed or load from env
+  const actualSeed = seed ?? loadSeedFromEnv();
   const fetchFn = resolveFetch(baseFetch);
 
   return async (
@@ -119,8 +121,8 @@ export function createGatewayFetch(options: GatewayFetchOptions): GatewayFetch {
     });
 
     // Sign the payload
-    const signature = await sign(
-      keyPair.privateKey,
+    const signature = signToBase64Url(
+      actualSeed,
       new TextEncoder().encode(canonicalPayload),
     );
 
@@ -165,26 +167,24 @@ export function createGatewayFetch(options: GatewayFetchOptions): GatewayFetch {
 
 /**
  * Create a gateway fetch from environment variables.
- * Expects: GATEWAY_APP_ID, GATEWAY_PROXY_URL, GATEWAY_PUBLIC_KEY, GATEWAY_PRIVATE_KEY
+ * Expects: GATEWAY_APP_ID, GATEWAY_PROXY_URL, GLUECO_PRIVATE_KEY
  */
 export function createGatewayFetchFromEnv(
   options?: Pick<GatewayFetchOptions, "baseFetch" | "throwOnError">,
 ): GatewayFetch {
   const appId = process.env.GATEWAY_APP_ID;
   const proxyUrl = process.env.GATEWAY_PROXY_URL;
-  const publicKey = process.env.GATEWAY_PUBLIC_KEY;
-  const privateKey = process.env.GATEWAY_PRIVATE_KEY;
 
-  if (!appId || !proxyUrl || !publicKey || !privateKey) {
+  if (!appId || !proxyUrl) {
     throw new Error(
-      "Missing required environment variables: GATEWAY_APP_ID, GATEWAY_PROXY_URL, GATEWAY_PUBLIC_KEY, GATEWAY_PRIVATE_KEY",
+      "Missing required environment variables: GATEWAY_APP_ID, GATEWAY_PROXY_URL",
     );
   }
 
+  // seed will be loaded from GLUECO_PRIVATE_KEY inside createGatewayFetch
   return createGatewayFetch({
     appId,
     proxyUrl,
-    keyPair: { publicKey, privateKey },
     ...options,
   });
 }
@@ -215,33 +215,4 @@ export function resolveFetch(customFetch?: typeof fetch): typeof fetch {
   );
 }
 
-// ============================================
-// UTILITIES
-// ============================================
 
-function generateNonce(): string {
-  const bytes = new Uint8Array(16);
-
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(bytes);
-  } else {
-    // Node.js fallback
-    const nodeCrypto = require("crypto");
-    const randomBytes = nodeCrypto.randomBytes(16);
-    bytes.set(randomBytes);
-  }
-
-  return base64UrlEncode(bytes);
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let base64: string;
-
-  if (typeof Buffer !== "undefined") {
-    base64 = Buffer.from(bytes).toString("base64");
-  } else {
-    base64 = btoa(String.fromCharCode(...bytes));
-  }
-
-  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}

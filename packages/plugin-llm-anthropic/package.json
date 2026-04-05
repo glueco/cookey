@@ -1,0 +1,77 @@
+{
+  "name": "@glueco/plugin-llm-anthropic",
+  "version": "0.1.0",
+  "description": "Anthropic Claude LLM plugin for Personal Resource Gateway",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./proxy": {
+      "types": "./dist/proxy.d.ts",
+      "import": "./dist/proxy.mjs",
+      "require": "./dist/proxy.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.mjs",
+      "require": "./dist/client.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.mjs",
+      "require": "./dist/contracts.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@glueco/shared": "^0.3.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@glueco/sdk": "^0.3.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "@glueco/shared": "^0.3.1",
+    "@glueco/sdk": "^0.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@glueco/sdk": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "prg",
+    "plugin",
+    "anthropic",
+    "claude",
+    "llm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glueco/gateway.git",
+    "directory": "packages/plugin-llm-anthropic"
+  },
+  "bugs": {
+    "url": "https://github.com/glueco/gateway/issues"
+  },
+  "homepage": "https://github.com/glueco/gateway#readme",
+  "license": "MIT"
+}

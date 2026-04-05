@@ -12,7 +12,7 @@
     "dev": "concurrently \"npm run dev:proxy\" \"npm run dev:demo\"",
     "prebuild": "node scripts/generate-enabled-plugins.mjs",
     "build": "npm run prebuild && npm run build --workspaces",
-    "build:plugins": "npm run build --workspace=packages/plugin-llm-groq --workspace=packages/plugin-llm-gemini --workspace=packages/plugin-llm-openai --workspace=packages/plugin-mail-resend",
+    "build:plugins": "npm run build --workspace=packages/plugin-llm-groq --workspace=packages/plugin-llm-gemini --workspace=packages/plugin-llm-openai --workspace=packages/plugin-llm-anthropic --workspace=packages/plugin-mail-resend",
     "lint": "npm run lint --workspaces --if-present",
     "dev:proxy": "npm run dev --workspace=apps/proxy",
     "dev:demo": "npm run dev --workspace=examples/demo-target-app",

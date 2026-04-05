@@ -86,7 +86,7 @@ PoP (Proof-of-Possession) ensures only authorized apps can make requests. No sha
 
 One gateway, many providers:
 
-- **LLM**: OpenAI, Groq, Google Gemini
+- **LLM**: OpenAI, Groq, Google Gemini, Anthropic Claude
 - **Email**: Resend
 - **Extensible**: Custom plugins easy to create
 
@@ -171,39 +171,39 @@ Install the SDK in your application:
 npm install @glueco/sdk
 ```
 
-Connect and make requests:
+Set your private key as an environment variable (server-side only):
 
-```typescript
-import { GatewayClient, FileKeyStorage, FileConfigStorage } from "@glueco/sdk";
+```bash
+# Generate a key (one-time)
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
-const client = new GatewayClient({
-  keyStorage: new FileKeyStorage("./.gateway/keys.json"),
-  configStorage: new FileConfigStorage("./.gateway/config.json"),
-});
-
-// Connect using a pairing string from the gateway admin
-await client.connect(pairingString, {
-  app: {
-    name: "My AI App",
-    description: "An app that uses AI",
-    homepage: "https://myapp.com",
-  },
-  permissions: [{ resourceId: "llm:groq", actions: ["chat.completions"] }],
-  duration: { type: "preset", preset: "1_hour" },
-});
-
-// Make requests (keys are NEVER in your app)
-const transport = await client.getTransport();
-const response = await transport.fetch("/r/llm/groq/v1/chat/completions", {
-  method: "POST",
-  body: JSON.stringify({
-    model: "llama-3.3-70b-versatile",
-    messages: [{ role: "user", content: "Hello!" }],
-  }),
-});
+# Set in environment
+export GLUECO_PRIVATE_KEY="your-base64-key-here"
 ```
 
-> **Note:** For web applications, use a server-side pattern where private keys stay on your server. The demo app shows this approach with API routes that handle PoP signing. Default permission expiry is 1 hour.
+Create a transport and make requests:
+
+```typescript
+import { createTransport } from "@glueco/sdk";
+import { groq } from "@glueco/plugin-llm-groq/client";
+
+// Create transport (uses GLUECO_PRIVATE_KEY from env)
+const transport = createTransport({
+  proxyUrl: "https://gateway.example.com",
+  appId: "app_abc123", // From callback after approval
+});
+
+// Use typed plugin client (keys are NEVER in your app)
+const groqClient = groq(transport);
+const response = await groqClient.chatCompletions({
+  model: "llama-3.3-70b-versatile",
+  messages: [{ role: "user", content: "Hello!" }],
+});
+
+console.log(response.data.choices[0].message.content);
+```
+
+> **Note:** `GLUECO_PRIVATE_KEY` must be kept server-side only. For web applications, use a server-side pattern where private keys stay on your server. The demo app shows this approach with API routes that handle PoP signing.
 
 ### Using with OpenAI SDK
 
@@ -211,14 +211,17 @@ The gateway is OpenAI-compatible, so you can use the official OpenAI SDK:
 
 ```typescript
 import OpenAI from "openai";
+import { createTransport } from "@glueco/sdk";
 
-const proxyUrl = await client.getProxyUrl();
-const gatewayFetch = await client.getFetch();
+const transport = createTransport({
+  proxyUrl: "https://gateway.example.com",
+  appId: "app_abc123",
+});
 
 const openai = new OpenAI({
   apiKey: "unused", // The gateway handles auth
-  baseURL: `${proxyUrl}/r/llm/groq`,
-  fetch: gatewayFetch,
+  baseURL: `${transport.getProxyUrl()}/r/llm/groq`,
+  fetch: transport.getFetch(),
 });
 
 const completion = await openai.chat.completions.create({
@@ -231,12 +234,13 @@ const completion = await openai.chat.completions.create({
 
 ## Supported Resources
 
-| Resource ID   | Provider | Description         |
-| ------------- | -------- | ------------------- |
-| `llm:openai`  | OpenAI   | GPT-4, GPT-3.5      |
-| `llm:groq`    | Groq     | Llama 3.x, Mixtral  |
-| `llm:gemini`  | Google   | Gemini 2.5/3.0      |
-| `mail:resend` | Resend   | Transactional email |
+| Resource ID      | Provider  | Description           |
+| ---------------- | --------- | --------------------- |
+| `llm:openai`     | OpenAI    | GPT-4, GPT-3.5       |
+| `llm:groq`       | Groq      | Llama 3.x, Mixtral    |
+| `llm:gemini`     | Google    | Gemini 2.5/3.0        |
+| `llm:anthropic`  | Anthropic | Claude 3.5, Claude 3  |
+| `mail:resend`    | Resend    | Transactional email   |
 
 ---
 
@@ -268,12 +272,13 @@ Glueco Gateway uses a **plug-and-play plugin system**. Each provider (OpenAI, Gr
 Edit `proxy.plugins.ts` at the root:
 
 ```typescript
-export default {
-  "llm:groq": true,
-  "llm:openai": true,
-  "llm:gemini": true,
-  "mail:resend": true,
-};
+const enabledPlugins = [
+  "@glueco/plugin-llm-groq",
+  "@glueco/plugin-llm-openai",
+  "@glueco/plugin-llm-gemini",
+  "@glueco/plugin-llm-anthropic",
+  "@glueco/plugin-mail-resend",
+];
 ```
 
 → See [Package Architecture](./docs/PACKAGE_ARCHITECTURE.md) for creating custom plugins.

@@ -18,6 +18,7 @@
     "@glueco/plugin-llm-groq": "*",
     "@glueco/plugin-llm-gemini": "*",
     "@glueco/plugin-llm-openai": "*",
+    "@glueco/plugin-llm-anthropic": "*",
     "@glueco/plugin-mail-resend": "*",
     "@prisma/client": "^5.10.0",
     "@upstash/redis": "^1.28.0",

@@ -2,7 +2,7 @@
 
 var sha256 = require('@noble/hashes/sha256');
 var shared = require('@glueco/shared');
-var ed = require('@noble/ed25519');
+var ed25519 = require('@noble/ed25519');
 var sha512 = require('@noble/hashes/sha512');
 
 function _interopNamespace(e) {
@@ -23,7 +23,7 @@ function _interopNamespace(e) {
   return Object.freeze(n);
 }
 
-var ed__namespace = /*#__PURE__*/_interopNamespace(ed);
+var ed25519__namespace = /*#__PURE__*/_interopNamespace(ed25519);
 
 var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
   get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
@@ -31,104 +31,100 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
-ed__namespace.etc.sha512Sync = (...m) => sha512.sha512(ed__namespace.etc.concatBytes(...m));
-async function generateKeyPair() {
-  const privateKeyBytes = ed__namespace.utils.randomPrivateKey();
-  const publicKeyBytes = await ed__namespace.getPublicKeyAsync(privateKeyBytes);
-  return {
-    publicKey: base64Encode(publicKeyBytes),
-    privateKey: base64Encode(privateKeyBytes)
-  };
-}
-async function sign(privateKeyBase64, message) {
-  const privateKey = base64Decode(privateKeyBase64);
-  const signature = await ed__namespace.signAsync(message, privateKey);
-  return base64Encode(signature);
-}
-var MemoryKeyStorage = class {
-  constructor() {
-    this.keyPair = null;
-  }
-  async load() {
-    return this.keyPair;
-  }
-  async save(keyPair) {
-    this.keyPair = keyPair;
-  }
-  async delete() {
-    this.keyPair = null;
+ed25519__namespace.etc.sha512Sync = (...m) => sha512.sha512(ed25519__namespace.etc.concatBytes(...m));
+var ENV_PRIVATE_KEY = "GLUECO_PRIVATE_KEY";
+var SEED_LENGTH = 32;
+var KeyError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "KeyError";
   }
 };
-var FileKeyStorage = class {
-  constructor(filePath) {
-    this.filePath = filePath;
-  }
-  async load() {
-    try {
-      const fs = await import('fs/promises');
-      const content = await fs.readFile(this.filePath, "utf-8");
-      return JSON.parse(content);
-    } catch {
-      return null;
-    }
-  }
-  async save(keyPair) {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    const dir = path.dirname(this.filePath);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify(keyPair, null, 2), {
-      mode: 384
-      // Owner read/write only
-    });
-  }
-  async delete() {
-    try {
-      const fs = await import('fs/promises');
-      await fs.unlink(this.filePath);
-    } catch {
-    }
-  }
-};
-var EnvKeyStorage = class {
-  constructor(publicKeyEnv = "GATEWAY_PUBLIC_KEY", privateKeyEnv = "GATEWAY_PRIVATE_KEY") {
-    this.publicKeyEnv = publicKeyEnv;
-    this.privateKeyEnv = privateKeyEnv;
-  }
-  async load() {
-    const publicKey = process.env[this.publicKeyEnv];
-    const privateKey = process.env[this.privateKeyEnv];
-    if (!publicKey || !privateKey) {
-      return null;
-    }
-    return { publicKey, privateKey };
-  }
-  async save(keyPair) {
-    console.warn(
-      `EnvKeyStorage: Cannot save keys. Set ${this.publicKeyEnv} and ${this.privateKeyEnv} manually.`
-    );
-    console.log(`Public Key: ${keyPair.publicKey}`);
-    console.log(`Private Key: ${keyPair.privateKey}`);
-  }
-  async delete() {
-    console.warn(
-      `EnvKeyStorage: Cannot delete keys. Remove env vars manually.`
+function ensureServerSide() {
+  if (typeof window !== "undefined") {
+    throw new KeyError(
+      "GLUECO_PRIVATE_KEY must be used server-side only. This SDK cannot be used in browser environments to prevent key leakage."
     );
   }
-};
-function base64Encode(bytes) {
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes).toString("base64");
-  }
-  return btoa(String.fromCharCode(...bytes));
 }
-function base64Decode(str) {
-  if (typeof Buffer !== "undefined") {
-    return new Uint8Array(Buffer.from(str, "base64"));
+function loadSeedFromEnv() {
+  ensureServerSide();
+  const value = process.env[ENV_PRIVATE_KEY];
+  if (!value) {
+    throw new KeyError(
+      `Missing environment variable: ${ENV_PRIVATE_KEY}
+Set it to a base64-encoded 32-byte Ed25519 seed.
+Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+    );
   }
-  return new Uint8Array(
-    atob(str).split("").map((c) => c.charCodeAt(0))
-  );
+  let seed;
+  try {
+    seed = Uint8Array.from(Buffer.from(value, "base64"));
+  } catch (e) {
+    throw new KeyError(
+      `Invalid format in ${ENV_PRIVATE_KEY}: ${e}\\nExpected base64-encoded 32 bytes.`
+    );
+  }
+  if (seed.length !== SEED_LENGTH) {
+    throw new KeyError(
+      `Invalid seed length in ${ENV_PRIVATE_KEY}: got ${seed.length} bytes, expected ${SEED_LENGTH}.
+Must be exactly 32 bytes (256 bits) base64-encoded.`
+    );
+  }
+  return seed;
+}
+function publicKeyFromSeed(seed) {
+  const publicKey = ed25519__namespace.getPublicKey(seed);
+  return Buffer.from(publicKey).toString("base64");
+}
+function getPublicKeyBytes(seed) {
+  return ed25519__namespace.getPublicKey(seed);
+}
+function signWithSeed(seed, message) {
+  return ed25519__namespace.sign(message, seed);
+}
+function signToBase64Url(seed, message) {
+  const signature = signWithSeed(seed, message);
+  return base64UrlEncode(signature);
+}
+function verify2(publicKey, message, signature) {
+  try {
+    return ed25519__namespace.verify(signature, message, publicKey);
+  } catch {
+    return false;
+  }
+}
+function base64UrlEncode(data) {
+  let base64;
+  if (typeof Buffer !== "undefined") {
+    base64 = Buffer.from(data).toString("base64");
+  } else {
+    base64 = btoa(String.fromCharCode(...data));
+  }
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function base64UrlDecode(str) {
+  let padded = str;
+  while (padded.length % 4 !== 0) {
+    padded += "=";
+  }
+  const base64 = padded.replace(/-/g, "+").replace(/_/g, "/");
+  if (typeof Buffer !== "undefined") {
+    return Uint8Array.from(Buffer.from(base64, "base64"));
+  } else {
+    return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  }
+}
+function generateNonce() {
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    const nodeCrypto = __require("crypto");
+    const randomBytes = nodeCrypto.randomBytes(16);
+    bytes.set(randomBytes);
+  }
+  return base64UrlEncode(bytes);
 }
 var GatewayError = class extends Error {
   constructor(code, message, status, options) {
@@ -173,10 +169,9 @@ function parseGatewayError(body, status) {
 function isGatewayError(error) {
   return error instanceof GatewayError;
 }
-
-// src/fetch.ts
 function createGatewayFetch(options) {
-  const { appId, proxyUrl, keyPair, baseFetch, throwOnError = false } = options;
+  const { appId, proxyUrl, seed, baseFetch, throwOnError = false } = options;
+  const actualSeed = seed ?? loadSeedFromEnv();
   const fetchFn = resolveFetch(baseFetch);
   return async (input, init) => {
     const proxyUrlObj = new URL(proxyUrl);
@@ -215,8 +210,8 @@ function createGatewayFetch(options) {
       nonce,
       bodyHash
     });
-    const signature = await sign(
-      keyPair.privateKey,
+    const signature = signToBase64Url(
+      actualSeed,
       new TextEncoder().encode(canonicalPayload)
     );
     const headers = new Headers(init?.headers);
@@ -246,17 +241,14 @@ function createGatewayFetch(options) {
 function createGatewayFetchFromEnv(options) {
   const appId = process.env.GATEWAY_APP_ID;
   const proxyUrl = process.env.GATEWAY_PROXY_URL;
-  const publicKey = process.env.GATEWAY_PUBLIC_KEY;
-  const privateKey = process.env.GATEWAY_PRIVATE_KEY;
-  if (!appId || !proxyUrl || !publicKey || !privateKey) {
+  if (!appId || !proxyUrl) {
     throw new Error(
-      "Missing required environment variables: GATEWAY_APP_ID, GATEWAY_PROXY_URL, GATEWAY_PUBLIC_KEY, GATEWAY_PRIVATE_KEY"
+      "Missing required environment variables: GATEWAY_APP_ID, GATEWAY_PROXY_URL"
     );
   }
   return createGatewayFetch({
     appId,
     proxyUrl,
-    keyPair: { publicKey, privateKey },
     ...options
   });
 }
@@ -274,25 +266,130 @@ function resolveFetch(customFetch) {
     "No fetch implementation available. Please provide a fetch function via options or ensure global fetch is available."
   );
 }
-function generateNonce() {
-  const bytes = new Uint8Array(16);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(bytes);
-  } else {
-    const nodeCrypto = __require("crypto");
-    const randomBytes = nodeCrypto.randomBytes(16);
-    bytes.set(randomBytes);
-  }
-  return base64UrlEncode(bytes);
-}
-function base64UrlEncode(bytes) {
-  let base64;
-  if (typeof Buffer !== "undefined") {
-    base64 = Buffer.from(bytes).toString("base64");
-  } else {
-    base64 = btoa(String.fromCharCode(...bytes));
-  }
-  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+// src/createTransport.ts
+function createTransport(options) {
+  const { proxyUrl, appId, throwOnError = false } = options;
+  const fetchFn = resolveFetch(options.fetch);
+  const seed = loadSeedFromEnv();
+  const signRequest = (method, url, bodyBytes) => {
+    const timestamp = Math.floor(Date.now() / 1e3).toString();
+    const nonce = generateNonce();
+    const bodyHash = base64UrlEncode(sha256.sha256(bodyBytes));
+    const pathWithQuery = shared.getPathWithQuery(url);
+    const canonicalPayload = shared.buildCanonicalRequestV1({
+      method: method.toUpperCase(),
+      pathWithQuery,
+      appId,
+      ts: timestamp,
+      nonce,
+      bodyHash
+    });
+    const signature = signToBase64Url(
+      seed,
+      new TextEncoder().encode(canonicalPayload)
+    );
+    return {
+      "x-pop-v": shared.POP_VERSION,
+      "x-app-id": appId,
+      "x-ts": timestamp,
+      "x-nonce": nonce,
+      "x-sig": signature
+    };
+  };
+  const transport = {
+    async request(resourceId, action, payload, reqOptions) {
+      const [resourceType, provider] = resourceId.split(":");
+      const actionPath = action.replace(".", "/");
+      const url = new URL(
+        `/r/${resourceType}/${provider}/${actionPath}`,
+        proxyUrl
+      );
+      const method = reqOptions?.method ?? "POST";
+      const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
+      const popHeaders = signRequest(method, url, bodyBytes);
+      const response = await fetchFn(url.toString(), {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...popHeaders,
+          ...reqOptions?.headers
+        },
+        body: JSON.stringify(payload),
+        signal: reqOptions?.signal
+      });
+      const headers = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      if (!response.ok) {
+        const errorBody = await response.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(errorBody);
+        } catch {
+          parsed = errorBody;
+        }
+        const error = parseGatewayError(parsed, response.status);
+        throw error ?? new Error(`Gateway error: ${response.status} ${errorBody}`);
+      }
+      const data = await response.json();
+      return {
+        data,
+        status: response.status,
+        headers
+      };
+    },
+    async requestStream(resourceId, action, payload, reqOptions) {
+      const [resourceType, provider] = resourceId.split(":");
+      const actionPath = action.replace(".", "/");
+      const url = new URL(
+        `/r/${resourceType}/${provider}/${actionPath}`,
+        proxyUrl
+      );
+      const method = reqOptions?.method ?? "POST";
+      const streamPayload = typeof payload === "object" && payload !== null ? { ...payload, stream: true } : payload;
+      const bodyBytes = new TextEncoder().encode(JSON.stringify(streamPayload));
+      const popHeaders = signRequest(method, url, bodyBytes);
+      const response = await fetchFn(url.toString(), {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          ...popHeaders,
+          ...reqOptions?.headers
+        },
+        body: JSON.stringify(streamPayload),
+        signal: reqOptions?.signal
+      });
+      const headers = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      if (!response.ok) {
+        const errorBody = await response.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(errorBody);
+        } catch {
+          parsed = errorBody;
+        }
+        const error = parseGatewayError(parsed, response.status);
+        throw error ?? new Error(`Gateway error: ${response.status} ${errorBody}`);
+      }
+      if (!response.body) {
+        throw new Error("No response body for streaming request");
+      }
+      return {
+        stream: response.body,
+        status: response.status,
+        headers
+      };
+    },
+    getProxyUrl: () => proxyUrl,
+    getFetch: () => fetchFn
+  };
+  return transport;
 }
 
 // src/pairing.ts
@@ -324,66 +421,8 @@ function parsePairingString(pairingString) {
 function createPairingString(proxyUrl, connectCode) {
   return `pair::${proxyUrl}::${connectCode}`;
 }
-async function connect(options) {
-  const fetchFn = resolveFetch(options.fetch);
-  const { proxyUrl, connectCode } = parsePairingString(options.pairingString);
-  const keyPair = options.keyPair || await generateKeyPair();
-  if (options.keyStorage) {
-    await options.keyStorage.save(keyPair);
-  }
-  const requestPayload = {
-    connectCode,
-    app: {
-      name: options.app.name,
-      description: options.app.description,
-      homepage: options.app.homepage
-    },
-    publicKey: keyPair.publicKey,
-    requestedPermissions: options.requestedPermissions,
-    redirectUri: options.redirectUri
-  };
-  const validation = shared.InstallRequestSchema.safeParse(requestPayload);
-  if (!validation.success) {
-    throw new ConnectError(
-      `Invalid connect payload: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
-      400
-    );
-  }
-  const response = await fetchFn(`${proxyUrl}/api/connect/prepare`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(requestPayload)
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    const gatewayError = parseGatewayError(body, response.status);
-    if (gatewayError) {
-      throw gatewayError;
-    }
-    throw new ConnectError(
-      body.error || "Failed to prepare connection",
-      response.status
-    );
-  }
-  const data = await response.json();
-  return {
-    approvalUrl: data.approvalUrl,
-    sessionToken: data.sessionToken,
-    expiresAt: new Date(data.expiresAt),
-    proxyUrl,
-    keyPair
-  };
-}
-function handleCallback(params) {
-  const status = params.get("status");
-  const appId = params.get("app_id");
-  if (status === "approved" && appId) {
-    return { approved: true, appId };
-  }
-  return { approved: false };
-}
+
+// src/connect.ts
 var ConnectError = class extends Error {
   constructor(message, statusCode) {
     super(message);
@@ -391,25 +430,94 @@ var ConnectError = class extends Error {
     this.name = "ConnectError";
   }
 };
+async function connect(options) {
+  const { pairingString, app, requestedPermissions, redirectUri } = options;
+  const fetchFn = resolveFetch(options.fetch);
+  const pairingInfo = parsePairingString(pairingString);
+  const seed = loadSeedFromEnv();
+  const publicKey = publicKeyFromSeed(seed);
+  const permissionsPayload = requestedPermissions.map((perm) => {
+    const permDict = {
+      resourceId: perm.resourceId,
+      actions: perm.actions
+    };
+    if (perm.requestedDuration) {
+      permDict.requestedDuration = {
+        type: perm.requestedDuration.type,
+        [perm.requestedDuration.type]: perm.requestedDuration.value ?? perm.requestedDuration.seconds
+      };
+    }
+    return permDict;
+  });
+  const requestPayload = {
+    connectCode: pairingInfo.connectCode,
+    app: {
+      name: app.name,
+      description: app.description,
+      homepage: app.homepage
+    },
+    publicKey,
+    // Proxy stores this with app_id
+    requestedPermissions: permissionsPayload,
+    redirectUri
+  };
+  let response;
+  try {
+    response = await fetchFn(`${pairingInfo.proxyUrl}/api/connect/prepare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestPayload)
+    });
+  } catch (e) {
+    throw new ConnectError(`Failed to connect to gateway: ${e}`);
+  }
+  if (!response.ok) {
+    let errorMessage;
+    try {
+      const body = await response.json();
+      errorMessage = body?.error?.message ?? body?.error ?? `Connection failed: ${response.status}`;
+    } catch {
+      errorMessage = `Connection failed: ${response.status}`;
+    }
+    throw new ConnectError(errorMessage, response.status);
+  }
+  const data = await response.json();
+  return {
+    approvalUrl: data.approvalUrl,
+    proxyUrl: pairingInfo.proxyUrl,
+    expiresAt: data.expiresAt ? new Date(data.expiresAt) : void 0
+  };
+}
+function handleCallback(params) {
+  const status = params.get("status");
+  const appId = params.get("app_id");
+  const expiresAt = params.get("expires_at");
+  if (status === "approved" && appId) {
+    return {
+      approved: true,
+      appId,
+      expiresAt: expiresAt ? new Date(expiresAt) : void 0
+    };
+  }
+  return { approved: false };
+}
 
 // src/client.ts
 var GatewayClient = class {
   constructor(options = {}) {
-    this.keyPair = null;
     this.config = null;
     this.gatewayFetch = null;
-    this.keyStorage = options.keyStorage || new MemoryKeyStorage();
     this.configStorage = options.configStorage || new MemoryConfigStorage();
     this.fetchFn = resolveFetch(options.fetch);
     this.throwOnError = options.throwOnError ?? false;
   }
   /**
    * Check if the client is connected and has valid credentials.
-   * Returns true only if we have keys AND a config with a valid appId.
+   * Returns true only if we have a config with a valid appId.
    */
   async isConnected() {
     await this.loadState();
-    return !!(this.keyPair && this.config && this.config.appId);
+    return !!(this.config && this.config.appId);
   }
   /**
    * Check if a connection flow is pending (connect() was called but callback not yet received).
@@ -417,19 +525,18 @@ var GatewayClient = class {
    */
   async isPendingApproval() {
     await this.loadState();
-    return !!(this.keyPair && this.config && !this.config.appId);
+    return !!(this.config && !this.config.appId);
   }
   /**
    * Initiate the connection flow.
    * Returns the approval URL to redirect the user to.
+   * Uses GLUECO_PRIVATE_KEY from environment.
    */
   async connect(options) {
     const result = await connect({
       ...options,
-      keyStorage: this.keyStorage,
       fetch: this.fetchFn
     });
-    this.keyPair = result.keyPair;
     this.config = {
       appId: "",
       // Will be set after callback
@@ -462,20 +569,20 @@ var GatewayClient = class {
   }
   /**
    * Get the PoP-enabled fetch function.
-   * Use this with vendor SDKs.
+   * Uses GLUECO_PRIVATE_KEY from environment.
    */
   async getFetch() {
     if (this.gatewayFetch) {
       return this.gatewayFetch;
     }
     await this.loadState();
-    if (!this.keyPair || !this.config || !this.config.appId) {
+    if (!this.config || !this.config.appId) {
       throw new Error("Client not connected. Call connect() first.");
     }
     this.gatewayFetch = createGatewayFetch({
       appId: this.config.appId,
       proxyUrl: this.config.proxyUrl,
-      keyPair: this.keyPair,
+      // seed loaded from env inside createGatewayFetch
       baseFetch: this.fetchFn,
       throwOnError: this.throwOnError
     });
@@ -616,9 +723,7 @@ var GatewayClient = class {
    * Disconnect and clear all stored credentials.
    */
   async disconnect() {
-    await this.keyStorage.delete();
     await this.configStorage.delete();
-    this.keyPair = null;
     this.config = null;
     this.gatewayFetch = null;
   }
@@ -626,9 +731,6 @@ var GatewayClient = class {
    * Load state from storage.
    */
   async loadState() {
-    if (!this.keyPair) {
-      this.keyPair = await this.keyStorage.load();
-    }
     if (!this.config) {
       this.config = await this.configStorage.load();
     }
@@ -704,24 +806,31 @@ var EnvConfigStorage = class {
 };
 
 exports.ConnectError = ConnectError;
+exports.ENV_PRIVATE_KEY = ENV_PRIVATE_KEY;
 exports.EnvConfigStorage = EnvConfigStorage;
-exports.EnvKeyStorage = EnvKeyStorage;
 exports.FileConfigStorage = FileConfigStorage;
-exports.FileKeyStorage = FileKeyStorage;
 exports.GatewayClient = GatewayClient;
 exports.GatewayError = GatewayError;
+exports.KeyError = KeyError;
 exports.MemoryConfigStorage = MemoryConfigStorage;
-exports.MemoryKeyStorage = MemoryKeyStorage;
+exports.base64UrlDecode = base64UrlDecode;
+exports.base64UrlEncode = base64UrlEncode;
 exports.connect = connect;
 exports.createGatewayFetch = createGatewayFetch;
 exports.createGatewayFetchFromEnv = createGatewayFetchFromEnv;
 exports.createPairingString = createPairingString;
-exports.generateKeyPair = generateKeyPair;
+exports.createTransport = createTransport;
+exports.generateNonce = generateNonce;
+exports.getPublicKeyBytes = getPublicKeyBytes;
 exports.handleCallback = handleCallback;
 exports.isGatewayError = isGatewayError;
+exports.loadSeedFromEnv = loadSeedFromEnv;
 exports.parseGatewayError = parseGatewayError;
 exports.parsePairingString = parsePairingString;
+exports.publicKeyFromSeed = publicKeyFromSeed;
 exports.resolveFetch = resolveFetch;
-exports.sign = sign;
+exports.signToBase64Url = signToBase64Url;
+exports.signWithSeed = signWithSeed;
+exports.verify = verify2;
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

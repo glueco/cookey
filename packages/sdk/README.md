@@ -1,6 +1,6 @@
 # @glueco/sdk
 
-Client SDK for Personal Resource Gateway. Provides PoP (Proof-of-Possession) authentication and seamless integration with vendor SDKs like OpenAI.
+Client SDK for the [Glueco Gateway](https://github.com/glueco/gateway). Provides PoP (Proof-of-Possession) authentication via Ed25519 signatures for secure, keyless API access.
 
 ## Installation
 
@@ -10,99 +10,72 @@ npm install @glueco/sdk
 
 ## Key Features
 
-- **Explicit Resource Selection**: No magic defaults - you explicitly specify which resource to use
-- **PoP Authentication**: Ed25519-based request signing for secure, keyless authentication
-- **SDK Compatibility**: Works with OpenAI SDK and other HTTP clients
-- **Flexible Storage**: File, memory, or environment-based key storage
-
-## Resource Format
-
-Resources are identified using the format `resourceType:provider`:
-
-- `llm:groq` - Groq LLM
-- `llm:gemini` - Google Gemini
-- `mail:resend` - Resend email
-- etc.
+- **Env-Only Keys**: Private key loaded from `GLUECO_PRIVATE_KEY` environment variable — never stored in files or passed through code
+- **Server-Side Only**: Key operations throw if run in the browser, preventing accidental key leakage
+- **PoP Authentication**: Ed25519-based request signing with timestamp, nonce, and body hash
+- **Transport Interface**: Clean `GatewayTransport` abstraction for typed plugin clients
+- **OpenAI Compatibility**: Works with the official OpenAI SDK via custom `fetch`
 
 ## Quick Start
 
-### 1. Connect to Gateway
+### 1. Generate a Key
 
-```typescript
-import { GatewayClient, FileKeyStorage, FileConfigStorage } from "@glueco/sdk";
+```bash
+# One-time key generation
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
-const client = new GatewayClient({
-  keyStorage: new FileKeyStorage("./.gateway/keys.json"),
-  configStorage: new FileConfigStorage("./.gateway/config.json"),
-});
-
-// Check if already connected
-if (!(await client.isConnected())) {
-  const result = await client.connect({
-    pairingString: "pair::https://gateway.example.com::abc123...",
-    app: {
-      name: "My App",
-      description: "Example application",
-    },
-    // Explicitly request specific resources
-    requestedPermissions: [
-      { resourceId: "llm:groq", actions: ["chat.completions"] },
-      { resourceId: "llm:gemini", actions: ["chat.completions"] },
-    ],
-    redirectUri: "https://myapp.com/callback",
-  });
-
-  // Redirect user to approval URL
-  console.log("Redirect to:", result.approvalUrl);
-}
+# Set in environment
+export GLUECO_PRIVATE_KEY="your-base64-key-here"
 ```
 
-### 2. Handle Callback
+### 2. Connect to Gateway
+
+```typescript
+import { connect, handleCallback } from "@glueco/sdk";
+
+// Initiate connection (server-side — uses GLUECO_PRIVATE_KEY)
+const result = await connect({
+  pairingString: "pair::https://gateway.example.com::abc123...",
+  app: {
+    name: "My App",
+    description: "Example application",
+  },
+  requestedPermissions: [
+    { resourceId: "llm:groq", actions: ["chat.completions"] },
+    { resourceId: "llm:anthropic", actions: ["chat.completions"] },
+  ],
+  redirectUri: "https://myapp.com/callback",
+});
+
+// Redirect user to approval URL
+console.log("Redirect to:", result.approvalUrl);
+```
+
+### 3. Handle Callback
 
 ```typescript
 // After user approves, they're redirected back with query params
 const params = new URLSearchParams(window.location.search);
-const result = await client.handleCallback(params);
+const result = handleCallback(params);
 
 if (result.approved) {
   console.log("Connected! App ID:", result.appId);
+  // Store appId for future requests
 }
 ```
 
-### 3. Use with OpenAI SDK
+### 4. Create Transport & Make Requests
 
 ```typescript
-import OpenAI from "openai";
-
-const gatewayFetch = await client.getFetch();
-
-// Note: Resource is specified in the baseURL, not inferred from model
-const baseURL = await client.getResourceBaseUrl("llm", "groq");
-// Returns: https://gateway.example.com/r/llm/groq
-
-const openai = new OpenAI({
-  apiKey: "unused", // Gateway provides the key
-  baseURL,
-  fetch: gatewayFetch,
-});
-
-const completion = await openai.chat.completions.create({
-  model: "llama-3.1-8b-instant",
-  messages: [{ role: "user", content: "Hello!" }],
-});
-```
-
-### 4. Use Typed Plugin Clients
-
-For full TypeScript support without vendor SDKs, use plugin client wrappers:
-
-```typescript
+import { createTransport } from "@glueco/sdk";
 import { groq } from "@glueco/plugin-llm-groq/client";
-import { openai } from "@glueco/plugin-llm-openai/client";
-import { GatewayClient } from "@glueco/sdk";
+import { anthropic } from "@glueco/plugin-llm-anthropic/client";
 
-const client = new GatewayClient({ ... });
-const transport = await client.getTransport();
+// Create transport (uses GLUECO_PRIVATE_KEY from env)
+const transport = createTransport({
+  proxyUrl: "https://gateway.example.com",
+  appId: "app_abc123", // From callback
+});
 
 // Typed Groq client
 const groqClient = groq(transport);
@@ -112,10 +85,12 @@ const response = await groqClient.chatCompletions({
   temperature: 0.7,
 });
 
-// Typed OpenAI client
-const openaiClient = openai(transport);
-const response2 = await openaiClient.chatCompletions({
-  model: "gpt-4o",
+console.log(response.data.choices[0].message.content);
+
+// Typed Anthropic client
+const claudeClient = anthropic(transport);
+const response2 = await claudeClient.chatCompletions({
+  model: "claude-3-5-sonnet-20241022",
   messages: [{ role: "user", content: "Hello!" }],
 });
 
@@ -126,21 +101,58 @@ const stream = await groqClient.chatCompletionsStream({
 });
 ```
 
-## GatewayTransport
+### 5. Use with OpenAI SDK
 
-The `GatewayTransport` interface allows plugin clients to make typed requests:
+```typescript
+import OpenAI from "openai";
+import { createGatewayFetchFromEnv } from "@glueco/sdk";
+
+const gatewayFetch = createGatewayFetchFromEnv({
+  appId: "app_abc123",
+  proxyUrl: "https://gateway.example.com",
+});
+
+const openai = new OpenAI({
+  apiKey: "unused", // Gateway handles auth
+  baseURL: "https://gateway.example.com/r/llm/groq",
+  fetch: gatewayFetch,
+});
+
+const completion = await openai.chat.completions.create({
+  model: "llama-3.1-8b-instant",
+  messages: [{ role: "user", content: "Hello!" }],
+});
+```
+
+## API Reference
+
+### `createTransport(options)` ⭐ Recommended
+
+Creates a `GatewayTransport` with built-in PoP signing. Uses `GLUECO_PRIVATE_KEY` from environment.
+
+```typescript
+import { createTransport } from "@glueco/sdk";
+
+const transport = createTransport({
+  proxyUrl: "https://gateway.example.com",
+  appId: "app_abc123",
+  fetch?: typeof fetch,  // Custom fetch (optional)
+});
+```
+
+### GatewayTransport
+
+The transport interface for making typed requests through the gateway:
 
 ```typescript
 interface GatewayTransport {
-  // Make a JSON request
   request<TResponse, TRequest>(
-    pluginId: string, // "llm:groq"
-    action: string, // "chat.completions"
+    pluginId: string,    // "llm:groq"
+    action: string,      // "chat.completions"
     body: TRequest,
     options?: GatewayRequestOptions,
   ): Promise<GatewayResponse<TResponse>>;
 
-  // Make a streaming request
   requestStream(
     pluginId: string,
     action: string,
@@ -162,90 +174,61 @@ interface GatewayStreamResponse {
 }
 ```
 
-### Using Transport Directly
+### `createGatewayFetchFromEnv(options)`
+
+Low-level PoP-enabled fetch function. Uses `GLUECO_PRIVATE_KEY` from environment.
 
 ```typescript
-const transport = await client.getTransport();
+import { createGatewayFetchFromEnv } from "@glueco/sdk";
 
-// Direct request without plugin client
-const response = await transport.request<ChatResponse, ChatRequest>(
-  "llm:groq",
-  "chat.completions",
-  {
-    model: "llama-3.3-70b-versatile",
-    messages: [{ role: "user", content: "Hello!" }],
-  },
-);
-
-console.log(response.data.choices[0].message.content);
-```
-
-## API Reference
-
-### GatewayClient
-
-High-level client that manages keys, config, and provides a simple interface.
-
-```typescript
-const client = new GatewayClient({
-  keyStorage?: KeyStorage,      // Default: MemoryKeyStorage
-  configStorage?: ConfigStorage, // Default: MemoryConfigStorage
-  baseFetch?: typeof fetch,      // Custom fetch implementation
+const gatewayFetch = createGatewayFetchFromEnv({
+  appId: "app_abc123",
+  proxyUrl: "https://gateway.example.com",
 });
 
-// Methods
+// Use like regular fetch — PoP headers added automatically
+const response = await gatewayFetch("/r/llm/groq/v1/chat/completions", {
+  method: "POST",
+  body: JSON.stringify({
+    model: "llama-3.3-70b-versatile",
+    messages: [{ role: "user", content: "Hello!" }],
+  }),
+});
+```
+
+### Key Utilities
+
+```typescript
+import {
+  loadSeedFromEnv,    // Load 32-byte seed from GLUECO_PRIVATE_KEY
+  publicKeyFromSeed,  // Derive base64 public key from seed
+  signWithSeed,       // Sign bytes with seed → Uint8Array
+  signToBase64Url,    // Sign bytes with seed → base64url string
+  verify,             // Verify signature against public key
+  generateNonce,      // Generate cryptographic nonce
+  KeyError,           // Error class for key issues
+} from "@glueco/sdk";
+```
+
+### GatewayClient (Legacy)
+
+> **Note:** `GatewayClient` is maintained for backward compatibility but `createTransport()` is the recommended API.
+
+```typescript
+import { GatewayClient, MemoryConfigStorage } from "@glueco/sdk";
+
+const client = new GatewayClient({
+  configStorage?: ConfigStorage,  // Default: MemoryConfigStorage
+  fetch?: typeof fetch,           // Custom fetch
+  throwOnError?: boolean,         // Default: false
+});
+
 await client.isConnected(): Promise<boolean>
 await client.connect(options): Promise<ConnectResult>
 await client.handleCallback(params): Promise<{ approved: boolean; appId?: string }>
 await client.getFetch(): Promise<GatewayFetch>
 await client.getTransport(): Promise<GatewayTransport>
-await client.getProxyUrl(): Promise<string>
-await client.getResourceBaseUrl(type, provider): Promise<string>
-await client.getAppId(): Promise<string>
 await client.disconnect(): Promise<void>
-```
-
-### createGatewayFetch
-
-Low-level PoP-enabled fetch function.
-
-```typescript
-import { createGatewayFetch } from "@glueco/sdk";
-
-const gatewayFetch = createGatewayFetch({
-  appId: "clx123...",
-  proxyUrl: "https://gateway.example.com",
-  keyPair: { publicKey: "...", privateKey: "..." },
-});
-```
-
-### Key Storage Options
-
-```typescript
-import { MemoryKeyStorage, FileKeyStorage, EnvKeyStorage } from "@glueco/sdk";
-
-// In-memory (lost on restart)
-new MemoryKeyStorage();
-
-// File-based (persisted)
-new FileKeyStorage("./.gateway/keys.json");
-
-// Environment variables
-new EnvKeyStorage("GATEWAY_PUBLIC_KEY", "GATEWAY_PRIVATE_KEY");
-```
-
-### Config Storage Options
-
-```typescript
-import {
-  MemoryConfigStorage,
-  FileConfigStorage,
-  EnvConfigStorage,
-} from "@glueco/sdk";
-
-new MemoryConfigStorage();
-new FileConfigStorage("./.gateway/config.json");
-new EnvConfigStorage("GATEWAY_APP_ID", "GATEWAY_PROXY_URL");
 ```
 
 ## URL Patterns
@@ -258,24 +241,29 @@ The gateway uses explicit URL-based resource routing:
 
 Examples:
 
-- `/r/llm/groq/v1/chat/completions` - Groq chat
-- `/r/llm/gemini/v1/chat/completions` - Gemini chat (translated to Gemini format)
-- `/r/llm/openai/v1/chat/completions` - OpenAI chat
-
-The legacy `/v1/chat/completions` endpoint requires an `x-gateway-resource` header.
+- `/r/llm/groq/v1/chat/completions` — Groq chat
+- `/r/llm/anthropic/v1/chat/completions` — Anthropic Claude (translated to Messages API)
+- `/r/llm/gemini/v1/chat/completions` — Google Gemini
+- `/r/llm/openai/v1/chat/completions` — OpenAI chat
+- `/r/mail/resend/v1/emails` — Resend email
 
 ## Environment Variables
 
-For production deployments, you can use environment variables:
-
 ```env
-GATEWAY_APP_ID=clx123...
+# Required — 32-byte Ed25519 seed, base64-encoded (SERVER-SIDE ONLY)
+GLUECO_PRIVATE_KEY=base64...
+
+# App identity (from gateway callback)
+GATEWAY_APP_ID=app_abc123
 GATEWAY_PROXY_URL=https://gateway.example.com
-GATEWAY_PUBLIC_KEY=base64...
-GATEWAY_PRIVATE_KEY=base64...
 ```
 
-Then use `createGatewayFetchFromEnv()` or `EnvKeyStorage`/`EnvConfigStorage`.
+## Security Notes
+
+- `GLUECO_PRIVATE_KEY` must **never** be exposed to the browser
+- The SDK throws `KeyError` if it detects a browser environment (`window` is defined)
+- For web apps, use a server-side API route pattern — see the demo app for examples
+- Keys are Ed25519 seeds (32 bytes), not full keypairs
 
 ## License
 

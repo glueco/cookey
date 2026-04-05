@@ -5,12 +5,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { verifyConnectionHandle, createConnectionHandle } from "@/lib/handle.server";
-import { createGatewayFetch } from "@glueco/sdk";
-import * as ed from "@noble/ed25519";
-import { sha512 } from "@noble/hashes/sha512";
-
-// Configure ed25519 to use sha512
-ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
+import {
+  createGatewayFetch,
+  loadSeedFromEnv,
+  publicKeyFromSeed,
+  base64UrlEncode,
+} from "@glueco/sdk";
 
 export const runtime = "nodejs";
 
@@ -37,41 +37,47 @@ export async function POST(request: NextRequest) {
 
     const { gatewayUrl, appId } = handlePayload;
 
-    // Get current private key
-    const currentPrivateKey = process.env.GATEWAY_PRIVATE_KEY;
-    if (!currentPrivateKey) {
+    // Load current seed from env
+    let currentSeed: Uint8Array;
+    try {
+      currentSeed = loadSeedFromEnv();
+    } catch {
       return NextResponse.json(
-        { error: "GATEWAY_PRIVATE_KEY not configured" },
+        { error: "GLUECO_PRIVATE_KEY not configured" },
         { status: 500 }
       );
     }
 
-    // Get or generate new private key
-    const nextPrivateKey = process.env.GATEWAY_NEXT_PRIVATE_KEY;
+    // Check for next private key (for rotation)
+    const nextPrivateKey = process.env.GLUECO_NEXT_PRIVATE_KEY;
     if (!nextPrivateKey) {
       return NextResponse.json(
-        { error: "GATEWAY_NEXT_PRIVATE_KEY not configured. Set the new private key before rotating." },
+        { error: "GLUECO_NEXT_PRIVATE_KEY not configured. Set the new private key before rotating." },
         { status: 400 }
       );
     }
 
-    // Derive public keys
-    const currentPrivateKeyBytes = Buffer.from(currentPrivateKey, "base64");
-    const currentPublicKeyBytes = ed.getPublicKey(currentPrivateKeyBytes);
-    const currentPublicKey = Buffer.from(currentPublicKeyBytes).toString("base64");
+    // Derive new public key
+    let nextSeed: Uint8Array;
+    try {
+      nextSeed = Uint8Array.from(Buffer.from(nextPrivateKey, "base64"));
+      if (nextSeed.length !== 32) {
+        throw new Error("Invalid seed length");
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "GLUECO_NEXT_PRIVATE_KEY must be valid base64-encoded 32 bytes" },
+        { status: 400 }
+      );
+    }
 
-    const nextPrivateKeyBytes = Buffer.from(nextPrivateKey, "base64");
-    const nextPublicKeyBytes = ed.getPublicKey(nextPrivateKeyBytes);
-    const newPublicKey = Buffer.from(nextPublicKeyBytes).toString("base64");
+    const newPublicKey = publicKeyFromSeed(nextSeed);
 
-    // Create gateway fetch with CURRENT key to sign the rotation request
+    // Create gateway fetch with CURRENT seed (uses GLUECO_PRIVATE_KEY from env)
     const gatewayFetch = createGatewayFetch({
       appId,
       proxyUrl: gatewayUrl,
-      keyPair: {
-        publicKey: currentPublicKey,
-        privateKey: currentPrivateKey,
-      },
+      // seed is loaded from env automatically
     });
 
     // Call proxy rotate endpoint
@@ -97,7 +103,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       status: "rotated",
       newHandle,
-      message: "Key rotated successfully. Update GATEWAY_PRIVATE_KEY to the new key.",
+      message: "Key rotated successfully. Update GLUECO_PRIVATE_KEY to the new key.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

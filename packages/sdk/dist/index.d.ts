@@ -110,68 +110,67 @@ type PluginClientFactory<TClient> = (transport: GatewayTransport) => TClient;
  */
 type PluginClient<T extends PluginClientFactory<unknown>> = T extends PluginClientFactory<infer C> ? C : never;
 
-interface KeyPair {
-    publicKey: string;
-    privateKey: string;
+/**
+ * Simple transport creation for the Glueco Gateway SDK.
+ *
+ * Provides createTransport() - the simplest way to get a signed transport.
+ * Requires only proxyUrl and appId. Uses GLUECO_PRIVATE_KEY from env.
+ *
+ * @example
+ * import { createTransport } from "@glueco/sdk";
+ *
+ * // App has saved these from the callback
+ * const transport = createTransport({
+ *   proxyUrl: "https://gateway.example.com",
+ *   appId: "app_abc123",
+ * });
+ *
+ * // Use with plugins
+ * import { groq } from "@glueco/plugin-llm-groq/client";
+ * const client = groq(transport);
+ * const response = await client.chatCompletions({...});
+ */
+
+interface CreateTransportOptions {
+    /** Gateway proxy URL */
+    proxyUrl: string;
+    /** Application ID (from callback) */
+    appId: string;
+    /** Optional custom fetch function */
+    fetch?: typeof fetch;
+    /** Whether to throw GatewayError on error responses */
+    throwOnError?: boolean;
 }
 /**
- * Generate a new Ed25519 keypair.
+ * Create a GatewayTransport for making signed requests.
+ *
+ * This is the main entry point for using the SDK after connection.
+ * Uses GLUECO_PRIVATE_KEY from environment to sign all requests.
+ *
+ * @param options Configuration options
+ * @returns GatewayTransport for use with plugin clients
+ *
+ * @throws KeyError if GLUECO_PRIVATE_KEY env var is missing or invalid
+ *
+ * @example
+ * const transport = createTransport({
+ *   proxyUrl: "https://gateway.example.com",
+ *   appId: "app_abc123",
+ * });
+ *
+ * // Use with plugins
+ * import { groq } from "@glueco/plugin-llm-groq/client";
+ * const client = groq(transport);
  */
-declare function generateKeyPair(): Promise<KeyPair>;
-/**
- * Sign a message with a private key.
- */
-declare function sign(privateKeyBase64: string, message: Uint8Array): Promise<string>;
-/**
- * Interface for key storage backends.
- * Implement this to customize where keys are stored.
- */
-interface KeyStorage {
-    load(): Promise<KeyPair | null>;
-    save(keyPair: KeyPair): Promise<void>;
-    delete(): Promise<void>;
-}
-/**
- * In-memory key storage.
- * Keys are lost when the process exits.
- */
-declare class MemoryKeyStorage implements KeyStorage {
-    private keyPair;
-    load(): Promise<KeyPair | null>;
-    save(keyPair: KeyPair): Promise<void>;
-    delete(): Promise<void>;
-}
-/**
- * File-based key storage.
- * Stores keys in a JSON file.
- */
-declare class FileKeyStorage implements KeyStorage {
-    private filePath;
-    constructor(filePath: string);
-    load(): Promise<KeyPair | null>;
-    save(keyPair: KeyPair): Promise<void>;
-    delete(): Promise<void>;
-}
-/**
- * Environment-based key storage.
- * Loads from environment variables, does not save.
- */
-declare class EnvKeyStorage implements KeyStorage {
-    private publicKeyEnv;
-    private privateKeyEnv;
-    constructor(publicKeyEnv?: string, privateKeyEnv?: string);
-    load(): Promise<KeyPair | null>;
-    save(keyPair: KeyPair): Promise<void>;
-    delete(): Promise<void>;
-}
+declare function createTransport(options: CreateTransportOptions): GatewayTransport;
 
 interface GatewayFetchOptions {
     /** App ID received after approval */
     appId: string;
     /** Gateway/proxy URL */
     proxyUrl: string;
-    /** Keypair for signing */
-    keyPair: KeyPair;
+    /** Optional: Ed25519 seed bytes (if not provided, uses GLUECO_PRIVATE_KEY env) */
+    seed?: Uint8Array;
     /** Optional base fetch function (for testing) */
     baseFetch?: typeof fetch;
     /** Whether to throw GatewayError on error responses (default: false for compatibility) */
@@ -204,7 +203,7 @@ type GatewayFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 declare function createGatewayFetch(options: GatewayFetchOptions): GatewayFetch;
 /**
  * Create a gateway fetch from environment variables.
- * Expects: GATEWAY_APP_ID, GATEWAY_PROXY_URL, GATEWAY_PUBLIC_KEY, GATEWAY_PRIVATE_KEY
+ * Expects: GATEWAY_APP_ID, GATEWAY_PROXY_URL, GLUECO_PRIVATE_KEY
  */
 declare function createGatewayFetchFromEnv(options?: Pick<GatewayFetchOptions, "baseFetch" | "throwOnError">): GatewayFetch;
 /**
@@ -232,8 +231,18 @@ declare function parsePairingString(pairingString: string): PairingInfo;
  */
 declare function createPairingString(proxyUrl: string, connectCode: string): string;
 
+/**
+ * Connection flow for the Glueco Gateway SDK.
+ *
+ * Handles:
+ * 1. Initiating the connect/prepare flow
+ * 2. Handling callbacks after user approval
+ *
+ * The SDK uses GLUECO_PRIVATE_KEY from environment. It derives the public key
+ * and sends it during connection.
+ */
 interface ConnectOptions {
-    /** The pairing string from the gateway */
+    /** Pairing string from gateway admin */
     pairingString: string;
     /** App metadata */
     app: {
@@ -241,80 +250,58 @@ interface ConnectOptions {
         description?: string;
         homepage?: string;
     };
-    /**
-     * Permissions to request.
-     * resourceId format: <resourceType>:<provider> (e.g., "llm:groq")
-     */
+    /** Requested permissions */
     requestedPermissions: Array<{
         resourceId: string;
         actions: string[];
+        requestedDuration?: {
+            type: "preset" | "custom";
+            value?: string;
+            seconds?: number;
+        };
     }>;
-    /** URL to redirect back to after approval */
+    /** Redirect URI for callback */
     redirectUri: string;
-    /** Key storage backend (default: memory) */
-    keyStorage?: KeyStorage;
-    /** Existing keypair to use (optional) */
-    keyPair?: KeyPair;
-    /** Custom fetch implementation (optional) */
+    /** Optional custom fetch */
     fetch?: typeof fetch;
 }
 interface ConnectResult {
-    /** URL to redirect the user to for approval */
+    /** URL to redirect user to for approval */
     approvalUrl: string;
-    /** Session token for tracking */
-    sessionToken: string;
-    /** When the session expires */
-    expiresAt: Date;
-    /** The proxy URL for future requests */
+    /** Proxy URL (from pairing string) */
     proxyUrl: string;
-    /** The generated keypair (store securely!) */
-    keyPair: KeyPair;
+    /** When the session expires */
+    expiresAt?: Date;
+}
+declare class ConnectError extends Error {
+    statusCode?: number | undefined;
+    constructor(message: string, statusCode?: number | undefined);
 }
 /**
- * Initiate the connection flow.
+ * Initiate the connection flow with the gateway.
  *
+ * This function:
  * 1. Parses the pairing string
- * 2. Generates (or uses provided) keypair
- * 3. Calls the prepare endpoint
- * 4. Returns the approval URL
+ * 2. Loads private key seed from GLUECO_PRIVATE_KEY env
+ * 3. Derives public key from seed
+ * 4. Calls the /api/connect/prepare endpoint with publicKey
+ * 5. Returns the approval URL (NO secrets returned)
  *
- * @example
- * const result = await connect({
- *   pairingString: 'pair::https://gateway.example.com::abc123',
- *   app: { name: 'My App' },
- *   requestedPermissions: [
- *     { resourceId: 'llm:groq', actions: ['chat.completions'] }
- *   ],
- *   redirectUri: 'https://myapp.com/callback',
- * });
- *
- * // Redirect user to result.approvalUrl
- * // Save result.keyPair securely!
+ * @throws KeyError if GLUECO_PRIVATE_KEY env var is missing or invalid
+ * @throws ConnectError if gateway request fails
  */
 declare function connect(options: ConnectOptions): Promise<ConnectResult>;
 /**
- * Handle the callback after approval.
+ * Handle the callback after user approval/denial.
+ *
  * Call this when the user is redirected back to your app.
- *
- * @example
- * const params = new URLSearchParams(window.location.search);
- * const result = handleCallback(params);
- *
- * if (result.approved) {
- *   console.log('App ID:', result.appId);
- * }
+ * The app should persist app_id and proxy_url.
  */
 declare function handleCallback(params: URLSearchParams): {
     approved: boolean;
     appId?: string;
+    expiresAt?: Date;
 };
-/**
- * Error thrown during connection.
- */
-declare class ConnectError extends Error {
-    statusCode: number;
-    constructor(message: string, statusCode: number);
-}
 
 /**
  * Error thrown when the gateway returns an error response.
@@ -355,9 +342,88 @@ declare function parseGatewayError(body: unknown, status: number): GatewayError 
  */
 declare function isGatewayError(error: unknown): error is GatewayError;
 
+/**
+ * Key management for the Glueco Gateway SDK.
+ *
+ * Loads Ed25519 private key seed from environment variable `GLUECO_PRIVATE_KEY`.
+ * SDK never generates keys - the app provisions a key and stores it server-side.
+ *
+ * Key Format:
+ *   GLUECO_PRIVATE_KEY must be base64-encoded 32-byte Ed25519 seed.
+ *
+ * Example:
+ *   // Generate a key (one-time, outside SDK):
+ *   const seed = crypto.getRandomValues(new Uint8Array(32));
+ *   console.log(Buffer.from(seed).toString('base64'));
+ *
+ *   // Set in environment:
+ *   export GLUECO_PRIVATE_KEY="base64-encoded-32-bytes..."
+ *
+ * IMPORTANT: This module is server-side only!
+ * Attempting to use in browser will throw an error.
+ */
+declare const ENV_PRIVATE_KEY = "GLUECO_PRIVATE_KEY";
+/**
+ * Error thrown for key-related issues
+ */
+declare class KeyError extends Error {
+    constructor(message: string);
+}
+/**
+ * Load Ed25519 seed from GLUECO_PRIVATE_KEY environment variable.
+ *
+ * @returns 32-byte seed as Uint8Array
+ * @throws KeyError if env var is missing or invalid
+ */
+declare function loadSeedFromEnv(): Uint8Array;
+/**
+ * Derive Ed25519 public key from seed.
+ *
+ * @param seed 32-byte Ed25519 seed
+ * @returns Public key as base64 string
+ */
+declare function publicKeyFromSeed(seed: Uint8Array): string;
+/**
+ * Get public key bytes from seed.
+ *
+ * @param seed 32-byte Ed25519 seed
+ * @returns 32-byte public key as Uint8Array
+ */
+declare function getPublicKeyBytes(seed: Uint8Array): Uint8Array;
+/**
+ * Sign a message with the Ed25519 seed.
+ *
+ * @param seed 32-byte Ed25519 seed
+ * @param message Message bytes to sign
+ * @returns 64-byte signature
+ */
+declare function signWithSeed(seed: Uint8Array, message: Uint8Array): Uint8Array;
+/**
+ * Sign message and return base64url-encoded signature.
+ *
+ * @param seed 32-byte Ed25519 seed
+ * @param message Message bytes to sign
+ * @returns Base64URL-encoded signature
+ */
+declare function signToBase64Url(seed: Uint8Array, message: Uint8Array): string;
+/**
+ * Verify an Ed25519 signature.
+ *
+ * @param publicKey 32-byte public key
+ * @param message Original message bytes
+ * @param signature 64-byte signature
+ * @returns True if valid
+ */
+declare function verify(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean;
+declare function base64UrlEncode(data: Uint8Array): string;
+declare function base64UrlDecode(str: string): Uint8Array;
+/**
+ * Generate a cryptographically random nonce (base64url encoded).
+ * Used for PoP replay protection.
+ */
+declare function generateNonce(): string;
+
 interface GatewayClientOptions {
-    /** Storage for keypair */
-    keyStorage?: KeyStorage;
     /** Storage for app config (appId, proxyUrl) */
     configStorage?: ConfigStorage;
     /** Custom fetch function (for testing or custom environments) */
@@ -411,17 +477,15 @@ interface GatewayConfig {
  * });
  */
 declare class GatewayClient {
-    private keyStorage;
     private configStorage;
     private fetchFn;
     private throwOnError;
-    private keyPair;
     private config;
     private gatewayFetch;
     constructor(options?: GatewayClientOptions);
     /**
      * Check if the client is connected and has valid credentials.
-     * Returns true only if we have keys AND a config with a valid appId.
+     * Returns true only if we have a config with a valid appId.
      */
     isConnected(): Promise<boolean>;
     /**
@@ -432,6 +496,7 @@ declare class GatewayClient {
     /**
      * Initiate the connection flow.
      * Returns the approval URL to redirect the user to.
+     * Uses GLUECO_PRIVATE_KEY from environment.
      */
     connect(options: {
         pairingString: string;
@@ -456,7 +521,7 @@ declare class GatewayClient {
     }>;
     /**
      * Get the PoP-enabled fetch function.
-     * Use this with vendor SDKs.
+     * Uses GLUECO_PRIVATE_KEY from environment.
      */
     getFetch(): Promise<GatewayFetch>;
     /**
@@ -535,4 +600,4 @@ declare class EnvConfigStorage implements ConfigStorage {
     delete(): Promise<void>;
 }
 
-export { type ConfigStorage, ConnectError, type ConnectOptions, type ConnectResult, EnvConfigStorage, EnvKeyStorage, FileConfigStorage, FileKeyStorage, GatewayClient, type GatewayClientOptions, type GatewayConfig, GatewayError, type GatewayFetch, type GatewayFetchOptions, type GatewayRequestOptions, type GatewayResponse, type GatewayStreamResponse, type GatewayTransport, type KeyPair, type KeyStorage, MemoryConfigStorage, MemoryKeyStorage, type PairingInfo, type PluginClient, type PluginClientFactory, connect, createGatewayFetch, createGatewayFetchFromEnv, createPairingString, generateKeyPair, handleCallback, isGatewayError, parseGatewayError, parsePairingString, resolveFetch, sign };
+export { type ConfigStorage, ConnectError, type ConnectOptions, type ConnectResult, type CreateTransportOptions, ENV_PRIVATE_KEY, EnvConfigStorage, FileConfigStorage, GatewayClient, type GatewayClientOptions, type GatewayConfig, GatewayError, type GatewayFetch, type GatewayFetchOptions, type GatewayRequestOptions, type GatewayResponse, type GatewayStreamResponse, type GatewayTransport, KeyError, MemoryConfigStorage, type PairingInfo, type PluginClient, type PluginClientFactory, base64UrlDecode, base64UrlEncode, connect, createGatewayFetch, createGatewayFetchFromEnv, createPairingString, createTransport, generateNonce, getPublicKeyBytes, handleCallback, isGatewayError, loadSeedFromEnv, parseGatewayError, parsePairingString, publicKeyFromSeed, resolveFetch, signToBase64Url, signWithSeed, verify };

@@ -1,23 +1,18 @@
 // ============================================
-// GATEWAY CLIENT
-// Browser-compatible gateway client using SDK primitives
+// GATEWAY CLIENT (v0.4.0 - Env-Only Design)
+// Browser-compatible gateway client
+// Keys are server-side only - browser stores {appId, proxyUrl}
 // ============================================
 
 import {
-  connect,
   handleCallback,
-  createGatewayFetch,
   parsePairingString,
-  generateKeyPair,
-  type KeyPair,
-  type ConnectResult,
   type GatewayTransport,
   type GatewayResponse,
   type GatewayStreamResponse,
   type GatewayRequestOptions,
 } from "@glueco/sdk";
 import {
-  BrowserKeyStorage,
   BrowserConfigStorage,
   type GatewayConfig,
 } from "./storage";
@@ -28,17 +23,22 @@ import {
 
 /**
  * Browser-compatible gateway client.
- * Uses localStorage for key and config storage.
+ * Uses localStorage for config storage.
+ * Keys are managed server-side via GLUECO_PRIVATE_KEY.
+ * 
+ * Connection flow:
+ * 1. Browser calls server API to initiate connect (server has the key)
+ * 2. User approves on gateway
+ * 3. Browser stores {appId, proxyUrl} from callback
+ * 4. Browser makes requests through server API (server signs)
+ * 
+ * For direct browser-to-gateway requests, use server-side transport.
  */
 export class BrowserGatewayClient {
-  private keyStorage: BrowserKeyStorage;
   private configStorage: BrowserConfigStorage;
-  private keyPair: KeyPair | null = null;
   private config: GatewayConfig | null = null;
-  private transport: GatewayTransport | null = null;
 
   constructor() {
-    this.keyStorage = new BrowserKeyStorage();
     this.configStorage = new BrowserConfigStorage();
   }
 
@@ -47,37 +47,24 @@ export class BrowserGatewayClient {
    */
   async isConnected(): Promise<boolean> {
     await this.loadState();
-    return !!(this.keyPair && this.config && this.config.appId);
+    return !!(this.config && this.config.appId);
   }
 
   /**
-   * Connect to a gateway using a pairing string.
+   * Initialize connection - stores proxy URL before redirect.
+   * Actual connect() is called server-side via API route.
    */
-  async connect(options: {
-    pairingString: string;
-    app: { name: string; description?: string; homepage?: string };
-    requestedPermissions: Array<{ resourceId: string; actions: string[] }>;
-    redirectUri: string;
-  }): Promise<ConnectResult> {
-    const { proxyUrl } = parsePairingString(options.pairingString);
-
-    const result = await connect({
-      ...options,
-      keyStorage: this.keyStorage,
-    });
-
-    // Store partial config
-    this.keyPair = result.keyPair;
+  async prepareConnect(pairingString: string): Promise<{ proxyUrl: string }> {
+    const { proxyUrl } = parsePairingString(pairingString);
+    
+    // Store partial config (appId will be set after callback)
     this.config = {
-      appId: "", // Will be set after callback
+      appId: "",
       proxyUrl,
     };
     await this.configStorage.save(this.config);
-
-    // Set session expiry from gateway response
-    this.configStorage.setExpiry(result.expiresAt);
-
-    return result;
+    
+    return { proxyUrl };
   }
 
   /**
@@ -101,7 +88,11 @@ export class BrowserGatewayClient {
         appId: result.appId,
       };
       await this.configStorage.save(this.config);
-      this.transport = null; // Clear cached transport
+      
+      // Set expiry if provided
+      if (result.expiresAt) {
+        this.configStorage.setExpiry(result.expiresAt);
+      }
     }
 
     return result;
@@ -130,105 +121,25 @@ export class BrowserGatewayClient {
   }
 
   /**
-   * Get a GatewayTransport for making requests.
+   * Get the gateway config.
    */
-  async getTransport(): Promise<GatewayTransport> {
-    if (this.transport) {
-      return this.transport;
-    }
-
+  async getConfig(): Promise<GatewayConfig | null> {
     await this.loadState();
-
-    if (!this.keyPair || !this.config || !this.config.appId) {
-      throw new Error("Not connected");
-    }
-
-    const gatewayFetch = createGatewayFetch({
-      appId: this.config.appId,
-      proxyUrl: this.config.proxyUrl,
-      keyPair: this.keyPair,
-    });
-
-    const proxyUrl = this.config.proxyUrl;
-
-    this.transport = {
-      async request<TResponse = unknown, TPayload = unknown>(
-        resourceId: string,
-        action: string,
-        payload: TPayload,
-        options?: GatewayRequestOptions,
-      ): Promise<GatewayResponse<TResponse>> {
-        const url = `${proxyUrl}/api/resources/${encodeURIComponent(resourceId)}/actions/${encodeURIComponent(action)}`;
-        const response = await gatewayFetch(url, {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-
-        const data = await response.json();
-
-        // Extract headers
-        const headers: Record<string, string> = {};
-        response.headers.forEach((value, key) => {
-          headers[key] = value;
-        });
-
-        return {
-          data: data as TResponse,
-          status: response.status,
-          headers,
-        };
-      },
-
-      async requestStream<TPayload = unknown>(
-        resourceId: string,
-        action: string,
-        payload: TPayload,
-        options?: Omit<GatewayRequestOptions, "stream">,
-      ): Promise<GatewayStreamResponse> {
-        const url = `${proxyUrl}/api/resources/${encodeURIComponent(resourceId)}/actions/${encodeURIComponent(action)}`;
-        const response = await gatewayFetch(url, {
-          method: "POST",
-          body: JSON.stringify({ ...payload, stream: true }),
-        });
-
-        // Extract headers
-        const headers: Record<string, string> = {};
-        response.headers.forEach((value, key) => {
-          headers[key] = value;
-        });
-
-        return {
-          stream: response.body!,
-          status: response.status,
-          headers,
-        };
-      },
-
-      getProxyUrl: () => proxyUrl,
-      getFetch: () => gatewayFetch,
-    };
-
-    return this.transport;
+    return this.config;
   }
 
   /**
    * Disconnect and clear all stored data.
    */
   async disconnect(): Promise<void> {
-    await this.keyStorage.delete();
     await this.configStorage.delete();
-    this.keyPair = null;
     this.config = null;
-    this.transport = null;
   }
 
   /**
    * Load state from storage.
    */
   private async loadState(): Promise<void> {
-    if (!this.keyPair) {
-      this.keyPair = await this.keyStorage.load();
-    }
     if (!this.config) {
       this.config = await this.configStorage.load();
     }
@@ -255,8 +166,6 @@ export function getGatewayClient(): BrowserGatewayClient {
  * Get the config storage instance.
  */
 export function getConfigStorage(): BrowserConfigStorage {
-  const client = getGatewayClient();
-  // Access storage through client (it's private, so we create a new one that shares the same localStorage keys)
   return new BrowserConfigStorage();
 }
 
@@ -269,4 +178,4 @@ export function clearGatewayClient(): void {
 
 // Re-export types for convenience
 export type { GatewayTransport, GatewayResponse, GatewayStreamResponse } from "@glueco/sdk";
-export type { GatewayConfig, BrowserConfigStorage, BrowserKeyStorage } from "./storage";
+export type { GatewayConfig, BrowserConfigStorage } from "./storage";

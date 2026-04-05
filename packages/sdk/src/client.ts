@@ -1,13 +1,7 @@
 import { parsePairingString } from "./pairing";
-import { connect, handleCallback } from "./connect";
+import { connect as envConnect, handleCallback as envHandleCallback, ConnectOptions, ConnectResult } from "./connect";
 import { createGatewayFetch, GatewayFetch, resolveFetch } from "./fetch";
-import {
-  generateKeyPair,
-  KeyPair,
-  KeyStorage,
-  FileKeyStorage,
-  MemoryKeyStorage,
-} from "./keys";
+import { loadSeedFromEnv } from "./keys";
 import { parseGatewayError } from "./errors";
 import type {
   GatewayTransport,
@@ -22,9 +16,6 @@ import type {
 // ============================================
 
 export interface GatewayClientOptions {
-  /** Storage for keypair */
-  keyStorage?: KeyStorage;
-
   /** Storage for app config (appId, proxyUrl) */
   configStorage?: ConfigStorage;
 
@@ -83,17 +74,14 @@ export interface GatewayConfig {
  * });
  */
 export class GatewayClient {
-  private keyStorage: KeyStorage;
   private configStorage: ConfigStorage;
   private fetchFn: typeof fetch;
   private throwOnError: boolean;
 
-  private keyPair: KeyPair | null = null;
   private config: GatewayConfig | null = null;
   private gatewayFetch: GatewayFetch | null = null;
 
   constructor(options: GatewayClientOptions = {}) {
-    this.keyStorage = options.keyStorage || new MemoryKeyStorage();
     this.configStorage = options.configStorage || new MemoryConfigStorage();
     this.fetchFn = resolveFetch(options.fetch);
     this.throwOnError = options.throwOnError ?? false;
@@ -101,11 +89,11 @@ export class GatewayClient {
 
   /**
    * Check if the client is connected and has valid credentials.
-   * Returns true only if we have keys AND a config with a valid appId.
+   * Returns true only if we have a config with a valid appId.
    */
   async isConnected(): Promise<boolean> {
     await this.loadState();
-    return !!(this.keyPair && this.config && this.config.appId);
+    return !!(this.config && this.config.appId);
   }
 
   /**
@@ -114,30 +102,26 @@ export class GatewayClient {
    */
   async isPendingApproval(): Promise<boolean> {
     await this.loadState();
-    return !!(this.keyPair && this.config && !this.config.appId);
+    return !!(this.config && !this.config.appId);
   }
 
   /**
    * Initiate the connection flow.
    * Returns the approval URL to redirect the user to.
+   * Uses GLUECO_PRIVATE_KEY from environment.
    */
   async connect(options: {
     pairingString: string;
     app: { name: string; description?: string; homepage?: string };
     requestedPermissions: Array<{ resourceId: string; actions: string[] }>;
     redirectUri: string;
-  }) {
-    const result = await connect({
+  }): Promise<ConnectResult> {
+    const result = await envConnect({
       ...options,
-      keyStorage: this.keyStorage,
       fetch: this.fetchFn,
     });
 
-    // Save the keypair
-    this.keyPair = result.keyPair;
-
     // Save partial config (appId will be added after callback)
-    // IMPORTANT: Save to storage now so callback can load the proxyUrl
     this.config = {
       appId: "", // Will be set after callback
       proxyUrl: result.proxyUrl,
@@ -155,7 +139,7 @@ export class GatewayClient {
     approved: boolean;
     appId?: string;
   }> {
-    const result = handleCallback(params);
+    const result = envHandleCallback(params);
 
     if (result.approved && result.appId) {
       // Load existing state first (config was saved during connect())
@@ -184,7 +168,7 @@ export class GatewayClient {
 
   /**
    * Get the PoP-enabled fetch function.
-   * Use this with vendor SDKs.
+   * Uses GLUECO_PRIVATE_KEY from environment.
    */
   async getFetch(): Promise<GatewayFetch> {
     if (this.gatewayFetch) {
@@ -193,14 +177,14 @@ export class GatewayClient {
 
     await this.loadState();
 
-    if (!this.keyPair || !this.config || !this.config.appId) {
+    if (!this.config || !this.config.appId) {
       throw new Error("Client not connected. Call connect() first.");
     }
 
     this.gatewayFetch = createGatewayFetch({
       appId: this.config.appId,
       proxyUrl: this.config.proxyUrl,
-      keyPair: this.keyPair,
+      // seed loaded from env inside createGatewayFetch
       baseFetch: this.fetchFn,
       throwOnError: this.throwOnError,
     });
@@ -390,9 +374,7 @@ export class GatewayClient {
    * Disconnect and clear all stored credentials.
    */
   async disconnect(): Promise<void> {
-    await this.keyStorage.delete();
     await this.configStorage.delete();
-    this.keyPair = null;
     this.config = null;
     this.gatewayFetch = null;
   }
@@ -401,9 +383,6 @@ export class GatewayClient {
    * Load state from storage.
    */
   private async loadState(): Promise<void> {
-    if (!this.keyPair) {
-      this.keyPair = await this.keyStorage.load();
-    }
     if (!this.config) {
       this.config = await this.configStorage.load();
     }

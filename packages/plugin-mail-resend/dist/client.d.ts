@@ -61,16 +61,15 @@ interface ResendClient {
  * @example
  * ```ts
  * import { resend } from "@glueco/plugin-mail-resend/client";
- * import { GatewayClient } from "@glueco/sdk";
+ * import { createTransport } from "@glueco/sdk";
  *
- * // Setup
- * const gatewayClient = new GatewayClient({
- *   keyStorage: new FileKeyStorage('./.gateway/keys.json'),
- *   configStorage: new FileConfigStorage('./.gateway/config.json'),
+ * // Create transport (uses GLUECO_PRIVATE_KEY from env)
+ * const transport = createTransport({
+ *   proxyUrl: "https://gateway.example.com",
+ *   appId: "app_abc123",
  * });
  *
- * // Get transport and create typed client
- * const transport = await gatewayClient.getTransport();
+ * // Create typed client
  * const mailClient = resend(transport);
  *
  * // Send email with full type safety
@@ -79,8 +78,6 @@ interface ResendClient {
  *   to: ["user1@example.com", "user2@example.com"],
  *   subject: "Important Update",
  *   html: "<p>This is an important update.</p>",
- *   text: "This is an important update.",
- *   tags: [{ name: "category", value: "updates" }]
  * });
  *
  * console.log(`Email sent! ID: ${response.data.id}`);

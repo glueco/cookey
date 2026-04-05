@@ -1,72 +1,29 @@
 // ============================================
 // BROWSER STORAGE IMPLEMENTATIONS
-// LocalStorage-based KeyStorage and ConfigStorage for browser environments
+// LocalStorage-based ConfigStorage for browser environments
+// (Key storage removed in v0.4.0 - keys are server-side only)
 // ============================================
-
-import type { KeyPair } from "@glueco/sdk";
 
 // ============================================
 // TYPES
 // ============================================
 
 /**
- * Storage interface for keypairs (matches SDK's KeyStorage).
- */
-export interface KeyStorage {
-  load(): Promise<KeyPair | null>;
-  save(keyPair: KeyPair): Promise<void>;
-  delete(): Promise<void>;
-}
-
-/**
- * Storage interface for gateway config (matches SDK's ConfigStorage).
- */
-export interface ConfigStorage {
-  load(): Promise<GatewayConfig | null>;
-  save(config: GatewayConfig): Promise<void>;
-  delete(): Promise<void>;
-}
-
-/**
  * Gateway configuration stored after approval.
+ * App only stores appId and proxyUrl - no keys!
  */
 export interface GatewayConfig {
   appId: string;
   proxyUrl: string;
 }
 
-// ============================================
-// BROWSER KEY STORAGE
-// ============================================
-
-const KEY_STORAGE_KEY = "gateway:keys";
-
 /**
- * Browser-compatible KeyStorage using localStorage.
- * Stores the Ed25519 keypair as hex-encoded strings.
+ * Storage interface for gateway config.
  */
-export class BrowserKeyStorage implements KeyStorage {
-  async load(): Promise<KeyPair | null> {
-    try {
-      const stored = localStorage.getItem(KEY_STORAGE_KEY);
-      if (!stored) return null;
-      
-      const parsed = JSON.parse(stored) as KeyPair;
-      if (!parsed.publicKey || !parsed.privateKey) return null;
-      
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-
-  async save(keyPair: KeyPair): Promise<void> {
-    localStorage.setItem(KEY_STORAGE_KEY, JSON.stringify(keyPair));
-  }
-
-  async delete(): Promise<void> {
-    localStorage.removeItem(KEY_STORAGE_KEY);
-  }
+export interface ConfigStorage {
+  load(): Promise<GatewayConfig | null>;
+  save(config: GatewayConfig): Promise<void>;
+  delete(): Promise<void>;
 }
 
 // ============================================

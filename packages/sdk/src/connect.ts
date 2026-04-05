@@ -1,16 +1,24 @@
-import { InstallRequestSchema } from "@glueco/shared";
-import { parsePairingString } from "./pairing";
-import { generateKeyPair, KeyPair, KeyStorage, MemoryKeyStorage } from "./keys";
-import { GatewayError, parseGatewayError } from "./errors";
+/**
+ * Connection flow for the Glueco Gateway SDK.
+ *
+ * Handles:
+ * 1. Initiating the connect/prepare flow
+ * 2. Handling callbacks after user approval
+ *
+ * The SDK uses GLUECO_PRIVATE_KEY from environment. It derives the public key
+ * and sends it during connection.
+ */
+
+import { parsePairingString, PairingInfo } from "./pairing";
+import { loadSeedFromEnv, publicKeyFromSeed, KeyError } from "./keys";
 import { resolveFetch } from "./fetch";
 
 // ============================================
-// CONNECT FLOW
-// Handles the pairing and approval process
+// CONNECT TYPES
 // ============================================
 
 export interface ConnectOptions {
-  /** The pairing string from the gateway */
+  /** Pairing string from gateway admin */
   pairingString: string;
 
   /** App metadata */
@@ -20,172 +28,161 @@ export interface ConnectOptions {
     homepage?: string;
   };
 
-  /**
-   * Permissions to request.
-   * resourceId format: <resourceType>:<provider> (e.g., "llm:groq")
-   */
+  /** Requested permissions */
   requestedPermissions: Array<{
     resourceId: string;
     actions: string[];
+    requestedDuration?: {
+      type: "preset" | "custom";
+      value?: string;
+      seconds?: number;
+    };
   }>;
 
-  /** URL to redirect back to after approval */
+  /** Redirect URI for callback */
   redirectUri: string;
 
-  /** Key storage backend (default: memory) */
-  keyStorage?: KeyStorage;
-
-  /** Existing keypair to use (optional) */
-  keyPair?: KeyPair;
-
-  /** Custom fetch implementation (optional) */
+  /** Optional custom fetch */
   fetch?: typeof fetch;
 }
 
 export interface ConnectResult {
-  /** URL to redirect the user to for approval */
+  /** URL to redirect user to for approval */
   approvalUrl: string;
 
-  /** Session token for tracking */
-  sessionToken: string;
-
-  /** When the session expires */
-  expiresAt: Date;
-
-  /** The proxy URL for future requests */
+  /** Proxy URL (from pairing string) */
   proxyUrl: string;
 
-  /** The generated keypair (store securely!) */
-  keyPair: KeyPair;
+  /** When the session expires */
+  expiresAt?: Date;
 }
 
-/**
- * Initiate the connection flow.
- *
- * 1. Parses the pairing string
- * 2. Generates (or uses provided) keypair
- * 3. Calls the prepare endpoint
- * 4. Returns the approval URL
- *
- * @example
- * const result = await connect({
- *   pairingString: 'pair::https://gateway.example.com::abc123',
- *   app: { name: 'My App' },
- *   requestedPermissions: [
- *     { resourceId: 'llm:groq', actions: ['chat.completions'] }
- *   ],
- *   redirectUri: 'https://myapp.com/callback',
- * });
- *
- * // Redirect user to result.approvalUrl
- * // Save result.keyPair securely!
- */
-export async function connect(options: ConnectOptions): Promise<ConnectResult> {
-  // Resolve fetch implementation
-  const fetchFn = resolveFetch(options.fetch);
-
-  // Parse pairing string
-  const { proxyUrl, connectCode } = parsePairingString(options.pairingString);
-
-  // Generate or use provided keypair
-  const keyPair = options.keyPair || (await generateKeyPair());
-
-  // Save to storage if provided
-  if (options.keyStorage) {
-    await options.keyStorage.save(keyPair);
-  }
-
-  // Build request payload conforming to InstallRequestSchema
-  const requestPayload = {
-    connectCode,
-    app: {
-      name: options.app.name,
-      description: options.app.description,
-      homepage: options.app.homepage,
-    },
-    publicKey: keyPair.publicKey,
-    requestedPermissions: options.requestedPermissions,
-    redirectUri: options.redirectUri,
-  };
-
-  // Validate payload against shared schema before sending
-  const validation = InstallRequestSchema.safeParse(requestPayload);
-  if (!validation.success) {
-    throw new ConnectError(
-      `Invalid connect payload: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
-      400,
-    );
-  }
-
-  // Call prepare endpoint
-  const response = await fetchFn(`${proxyUrl}/api/connect/prepare`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestPayload),
-  });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    const gatewayError = parseGatewayError(body, response.status);
-
-    if (gatewayError) {
-      throw gatewayError;
-    }
-
-    throw new ConnectError(
-      body.error || "Failed to prepare connection",
-      response.status,
-    );
-  }
-
-  const data = await response.json();
-
-  return {
-    approvalUrl: data.approvalUrl,
-    sessionToken: data.sessionToken,
-    expiresAt: new Date(data.expiresAt),
-    proxyUrl,
-    keyPair,
-  };
-}
-
-/**
- * Handle the callback after approval.
- * Call this when the user is redirected back to your app.
- *
- * @example
- * const params = new URLSearchParams(window.location.search);
- * const result = handleCallback(params);
- *
- * if (result.approved) {
- *   console.log('App ID:', result.appId);
- * }
- */
-export function handleCallback(params: URLSearchParams): {
-  approved: boolean;
-  appId?: string;
-} {
-  const status = params.get("status");
-  const appId = params.get("app_id");
-
-  if (status === "approved" && appId) {
-    return { approved: true, appId };
-  }
-
-  return { approved: false };
-}
-
-/**
- * Error thrown during connection.
- */
 export class ConnectError extends Error {
   constructor(
     message: string,
-    public statusCode: number,
+    public statusCode?: number
   ) {
     super(message);
     this.name = "ConnectError";
   }
+}
+
+// ============================================
+// CONNECT FLOW
+// ============================================
+
+/**
+ * Initiate the connection flow with the gateway.
+ *
+ * This function:
+ * 1. Parses the pairing string
+ * 2. Loads private key seed from GLUECO_PRIVATE_KEY env
+ * 3. Derives public key from seed
+ * 4. Calls the /api/connect/prepare endpoint with publicKey
+ * 5. Returns the approval URL (NO secrets returned)
+ *
+ * @throws KeyError if GLUECO_PRIVATE_KEY env var is missing or invalid
+ * @throws ConnectError if gateway request fails
+ */
+export async function connect(options: ConnectOptions): Promise<ConnectResult> {
+  const { pairingString, app, requestedPermissions, redirectUri } = options;
+  const fetchFn = resolveFetch(options.fetch);
+
+  // Parse pairing string
+  const pairingInfo = parsePairingString(pairingString);
+
+  // Load seed from env and derive public key
+  const seed = loadSeedFromEnv();
+  const publicKey = publicKeyFromSeed(seed);
+
+  // Build permissions payload
+  const permissionsPayload = requestedPermissions.map((perm) => {
+    const permDict: Record<string, unknown> = {
+      resourceId: perm.resourceId,
+      actions: perm.actions,
+    };
+    if (perm.requestedDuration) {
+      permDict.requestedDuration = {
+        type: perm.requestedDuration.type,
+        [perm.requestedDuration.type]: perm.requestedDuration.value ?? perm.requestedDuration.seconds,
+      };
+    }
+    return permDict;
+  });
+
+  // Build request payload - includes publicKey for proxy to store
+  const requestPayload = {
+    connectCode: pairingInfo.connectCode,
+    app: {
+      name: app.name,
+      description: app.description,
+      homepage: app.homepage,
+    },
+    publicKey, // Proxy stores this with app_id
+    requestedPermissions: permissionsPayload,
+    redirectUri,
+  };
+
+  // Call prepare endpoint
+  let response: Response;
+  try {
+    response = await fetchFn(`${pairingInfo.proxyUrl}/api/connect/prepare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestPayload),
+    });
+  } catch (e) {
+    throw new ConnectError(`Failed to connect to gateway: ${e}`);
+  }
+
+  if (!response.ok) {
+    let errorMessage: string;
+    try {
+      const body = await response.json();
+      errorMessage =
+        body?.error?.message ?? body?.error ?? `Connection failed: ${response.status}`;
+    } catch {
+      errorMessage = `Connection failed: ${response.status}`;
+    }
+    throw new ConnectError(errorMessage, response.status);
+  }
+
+  const data = await response.json();
+
+  // Return ONLY non-secret data
+  return {
+    approvalUrl: data.approvalUrl,
+    proxyUrl: pairingInfo.proxyUrl,
+    expiresAt: data.expiresAt ? new Date(data.expiresAt) : undefined,
+  };
+}
+
+// ============================================
+// CALLBACK HANDLING
+// ============================================
+
+/**
+ * Handle the callback after user approval/denial.
+ *
+ * Call this when the user is redirected back to your app.
+ * The app should persist app_id and proxy_url.
+ */
+export function handleCallback(params: URLSearchParams): {
+  approved: boolean;
+  appId?: string;
+  expiresAt?: Date;
+} {
+  const status = params.get("status");
+  const appId = params.get("app_id");
+  const expiresAt = params.get("expires_at");
+
+  if (status === "approved" && appId) {
+    return {
+      approved: true,
+      appId,
+      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+    };
+  }
+
+  return { approved: false };
 }

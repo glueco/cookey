@@ -97,10 +97,7 @@ Vercel integrates directly with Neon - no separate Neon account needed!
 4. Choose a region (pick one close to you, e.g., `us-east-1`)
 5. Click **"Create"**
 
-Vercel automatically:
-
-- Creates a Neon database
-- Adds `DATABASE_URL` and related environment variables to your project
+Vercel automatically adds the `DATABASE_URL` environment variable to your project.
 
 ### Step 4: Add Upstash Redis (via Vercel Storage)
 
@@ -110,12 +107,9 @@ Vercel automatically:
 4. Choose a region (same as your Neon database)
 5. Click **"Create"**
 
-Vercel automatically:
-
-- Creates an Upstash Redis database
-- Adds `KV_URL`, `KV_REST_API_URL`, `KV_REST_API_TOKEN` environment variables
-
-> **Note:** The gateway uses `REDIS_URL`. You may need to add this manually pointing to the Upstash URL, or the code can be configured to use `KV_REST_API_URL`.
+Vercel automatically adds the required environment variables:
+- `KV_REST_API_URL`
+- `KV_REST_API_TOKEN`
 
 ### Step 5: Set Remaining Environment Variables
 
@@ -123,16 +117,20 @@ Go to your project → **Settings** → **Environment Variables**
 
 The database URLs are already set from Steps 3-4. Add these additional variables:
 
-| Variable              | Description                                     | Example                            |
-| --------------------- | ----------------------------------------------- | ---------------------------------- |
-| `ADMIN_SECRET`        | Secret for admin login (generate a strong one!) | `your-super-secret-admin-password` |
-| `ENCRYPTION_KEY`      | 32-byte hex key for encrypting API keys         | `0123456789abcdef...` (64 chars)   |
-| `GATEWAY_URL` | Your deployed URL (set after first deploy)      | `https://gateway.yourdomain.com`   |
-| `MASTER_KEY`          | Master encryption key                           | `another-32-byte-hex-key`          |
+| Variable       | Required | Description                             | Example                          |
+| -------------- | -------- | --------------------------------------- | -------------------------------- |
+| `ADMIN_SECRET` | ✅       | Secret for admin login                  | `your-super-secret-password`     |
+| `MASTER_KEY`   | ✅       | 32-byte hex key for encryption (64 chars) | `0a1b2c3d...` (64 hex chars)   |
+| `GATEWAY_URL`  | ✅       | Public URL of your deployed gateway     | `https://my-gateway.vercel.app`  |
 
 **Generate secure keys:**
 
-Use a random key generator to create 64-character hex strings. Online tools like [generate.plus/hex](https://generate.plus/en/hex) or password generators work well. Generate two separate keys - one for `ENCRYPTION_KEY` and one for `MASTER_KEY`.
+```bash
+# Generate a 32-byte hex key (64 characters) for MASTER_KEY
+openssl rand -hex 32
+```
+
+Or use online tools like [generate.plus/hex](https://generate.plus/en/hex).
 
 ### Step 6: Deploy
 
@@ -141,47 +139,22 @@ Use a random key generator to create 64-character hex strings. Online tools like
 3. Wait for the build to complete (usually 1-2 minutes)
 4. Your gateway is now live! 🎉
 
-### Step 7: Push Database Schema to Neon
+---
 
-After the first deployment, you need to push the Prisma schema to create tables in your Neon database:
+## Automatic Database Schema Push
 
-**Option A: Using Vercel CLI (Recommended)**
-
-```bash
-# Install Vercel CLI if not already installed
-npm i -g vercel
-
-# Link to your project
-vercel link
-
-# Pull environment variables (including DATABASE_URL)
-vercel env pull .env.local
-
-# Navigate to the proxy app
-cd apps/proxy
-
-# Push schema to database
-npx prisma db push
-```
-
-**Option B: Manual with Connection String**
-
-1. Get your `DATABASE_URL` from Vercel → Settings → Environment Variables
-2. Run locally:
+The gateway is configured to **automatically push database schema changes** during each Vercel build. The build command runs:
 
 ```bash
-cd apps/proxy
-DATABASE_URL="postgresql://user:pass@host/db" npx prisma db push
+prisma generate && prisma db push && next build
 ```
 
-**Option C: Using Prisma Migrate (for production)**
+This means:
+- ✅ Schema changes are applied automatically on each deployment
+- ✅ No manual migrations required
+- ✅ Your database stays in sync with the latest code
 
-```bash
-cd apps/proxy
-DATABASE_URL="your-neon-connection-string" npx prisma migrate deploy
-```
-
-> **Note:** `prisma db push` is great for initial setup. For production changes, use `prisma migrate deploy` which tracks migration history.
+> **Note:** `prisma db push` is safe for schema updates. It will add new tables/columns without data loss. However, removing or renaming columns may cause data loss - review schema changes carefully before deploying.
 
 ---
 
@@ -223,7 +196,7 @@ Navigate to **Resources** tab and click **"Add Resource"**:
 | -------- | ------------- | -------------- |
 | Resend   | `mail:resend` | `re_...`       |
 
-**Security Note:** API keys are encrypted before storage using your `ENCRYPTION_KEY`. They are never exposed in the UI or API responses.
+**Security Note:** API keys are encrypted before storage using your `MASTER_KEY`. They are never exposed in the UI or API responses.
 
 ---
 
@@ -355,13 +328,60 @@ If you see "Can't reach database server" errors:
 
 If you see "Redis connection failed" errors:
 
-- Verify `REDIS_URL` format in Vercel environment variables
+- Verify `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set
 - Check Upstash dashboard in Vercel Storage tab for connection limits
 - Ensure TLS is properly configured
 
+#### Missing Environment Variables Error
+
+If you see "Missing DATABASE_URL" or "Missing KV_REST_API_URL" errors:
+
+- Ensure all required environment variables are set in Vercel
+- Check that Vercel Storage integrations are properly connected
+- See [Manual Environment Variables Setup](#manual-environment-variables-setup) below
+
 ### Debug Mode
 
-For verbose logging during local development, set `VERBOSE=true` in your environment variables.
+For verbose logging during local development, set `LOG_LEVEL=debug` in your environment variables.
+
+---
+
+## Manual Environment Variables Setup
+
+If you're **not using Vercel Storage** or want to use your own database providers (e.g., self-hosted PostgreSQL, external Redis), you can manually set the environment variables.
+
+### Required Environment Variables
+
+| Variable              | Description                                              |
+| --------------------- | -------------------------------------------------------- |
+| `DATABASE_URL`        | PostgreSQL connection string                             |
+| `KV_REST_API_URL`     | Upstash Redis REST API URL                               |
+| `KV_REST_API_TOKEN`   | Upstash Redis REST API token                             |
+| `ADMIN_SECRET`        | Admin login password                                     |
+| `MASTER_KEY`          | 32-byte hex key (64 chars) for encrypting API keys       |
+| `GATEWAY_URL`         | Public URL of your gateway (e.g., `https://example.com`) |
+
+### Database Connection String Format
+
+**PostgreSQL (Neon/Supabase/Self-hosted):**
+```
+postgresql://user:password@host:5432/database?sslmode=require
+```
+
+**Upstash Redis:**
+```
+# KV_REST_API_URL format:
+https://your-region.upstash.io
+
+# KV_REST_API_TOKEN is provided separately by Upstash
+```
+
+### Self-Hosted Redis
+
+The gateway uses the Upstash Redis REST client (`@upstash/redis`). If you want to use a self-hosted Redis instance, you'll need to:
+
+1. Set up a REST proxy that's compatible with the Upstash REST API format
+2. Or modify the `apps/proxy/src/lib/redis.ts` file to use a standard Redis client
 
 ---
 
@@ -370,7 +390,7 @@ For verbose logging during local development, set `VERBOSE=true` in your environ
 ### Environment Variables
 
 - ✅ Use strong, unique values for `ADMIN_SECRET`
-- ✅ Generate cryptographically secure `ENCRYPTION_KEY`
+- ✅ Generate cryptographically secure `MASTER_KEY` (use `openssl rand -hex 32`)
 - ✅ Never commit `.env` files to version control
 - ✅ Rotate secrets periodically
 
@@ -415,20 +435,32 @@ Alternatively, if you're comfortable with Git, pull the latest changes to your l
 
 ---
 
-## Appendix: Environment Variable Reference
+## Appendix: Complete Environment Variable Reference
 
-| Variable              | Required | Description                                        | Set By                  |
-| --------------------- | -------- | -------------------------------------------------- | ----------------------- |
-| `DATABASE_URL`        | ✅       | PostgreSQL connection string                       | Vercel Storage          |
-| `REDIS_URL`           | ✅       | Redis connection string (or use `KV_REST_API_URL`) | Vercel Storage / Manual |
-| `ADMIN_SECRET`        | ✅       | Admin login password                               | Manual                  |
-| `ENCRYPTION_KEY`      | ✅       | 32-byte hex key for encryption                     | Manual                  |
-| `GATEWAY_URL`         | ✅       | Public URL of your gateway                         | Manual                  |
-| `MASTER_KEY`          | ✅       | Master encryption key                              | Manual                  |
-| `POSTGRES_*`          | ❌       | Additional Neon variables (auto-set by Vercel)     | Vercel Storage          |
-| `KV_*`                | ❌       | Upstash KV variables (auto-set by Vercel)          | Vercel Storage          |
-| `NODE_ENV`            | ❌       | `production` for deployed instances                | Auto                    |
+| Variable              | Required | Description                                   | Set By                  |
+| --------------------- | -------- | --------------------------------------------- | ----------------------- |
+| `DATABASE_URL`        | ✅       | PostgreSQL connection string                  | Vercel Storage / Manual |
+| `KV_REST_API_URL`     | ✅       | Upstash Redis REST API URL                    | Vercel Storage / Manual |
+| `KV_REST_API_TOKEN`   | ✅       | Upstash Redis REST API token                  | Vercel Storage / Manual |
+| `ADMIN_SECRET`        | ✅       | Admin login password                          | Manual                  |
+| `MASTER_KEY`          | ✅       | 32-byte hex key for encryption (64 chars)     | Manual                  |
+| `GATEWAY_URL`         | ✅       | Public URL of your gateway                    | Manual                  |
+| `LOG_LEVEL`           | ❌       | Logging level (`debug`, `info`, `warn`, `error`) | Manual               |
+| `NODE_ENV`            | ❌       | `production` for deployed instances           | Auto                    |
+
+### Demo Branch Variables (Advanced)
+
+When running on a `demo` git branch, the gateway supports separate environment variables with a `DEMO_` prefix. This enables running a demo instance with isolated databases:
+
+| Variable                   | Description                              |
+| -------------------------- | ---------------------------------------- |
+| `DEMO_DATABASE_URL`        | Demo instance PostgreSQL connection      |
+| `DEMO_KV_REST_API_URL`     | Demo instance Redis REST API URL         |
+| `DEMO_KV_REST_API_TOKEN`   | Demo instance Redis REST API token       |
+| `DEMO_GATEWAY_URL`         | Demo instance public URL                 |
+
+The gateway automatically detects the `demo` branch via `VERCEL_GIT_COMMIT_REF` and uses the `DEMO_*` variables when available.
 
 ---
 
-_Last updated: January 2026_
+_Last updated: February 2026_
