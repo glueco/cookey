@@ -1,5 +1,12 @@
 # @glueco/plugin-template
 
+## 3.0.0
+
+### Patch Changes
+
+- Updated dependencies [fb64fd3]
+  - @glueco/sdk@0.4.0
+
 ## 2.0.0
 
 ### Patch Changes

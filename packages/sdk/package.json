@@ -1,6 +1,6 @@
 {
   "name": "@glueco/sdk",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Personal Resource Gateway - Client SDK for target apps",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

@@ -1,6 +1,6 @@
 {
   "name": "@glueco/demo-target-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Reference implementation for integrating with Personal Resource Gateway using @glueco/sdk",
   "private": true,
   "scripts": {
@@ -10,11 +10,11 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@glueco/plugin-llm-gemini": "^0.1.1",
-    "@glueco/plugin-llm-groq": "^0.1.1",
-    "@glueco/plugin-llm-openai": "^0.1.1",
-    "@glueco/plugin-mail-resend": "^0.1.1",
-    "@glueco/sdk": "^0.3.0",
+    "@glueco/plugin-llm-gemini": "^1.0.0",
+    "@glueco/plugin-llm-groq": "^1.0.0",
+    "@glueco/plugin-llm-openai": "^1.0.0",
+    "@glueco/plugin-mail-resend": "^1.0.0",
+    "@glueco/sdk": "^0.4.0",
     "@glueco/shared": "^0.3.0",
     "next": "^14.1.0",
     "react": "^18.2.0",
