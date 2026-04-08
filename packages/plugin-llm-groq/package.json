@@ -65,12 +65,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/glueco/gateway.git",
+    "url": "git+https://github.com/glueco/cookey.git",
     "directory": "packages/plugin-llm-groq"
   },
   "bugs": {
-    "url": "https://github.com/glueco/gateway/issues"
+    "url": "https://github.com/glueco/cookey/issues"
   },
-  "homepage": "https://github.com/glueco/gateway#readme",
+  "homepage": "https://github.com/glueco/cookey#readme",
   "license": "MIT"
 }
