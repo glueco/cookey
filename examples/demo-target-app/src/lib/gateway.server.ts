@@ -29,7 +29,7 @@ export function createServerTransport(
  * Get the public key from GLUECO_PRIVATE_KEY.
  * Used when connecting to a gateway.
  */
-export function getPublicKey(): string {
+export async function getPublicKey(): Promise<string> {
   const seed = loadSeedFromEnv();
   return publicKeyFromSeed(seed);
 }

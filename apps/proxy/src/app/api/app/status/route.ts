@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 import { authenticateRequest, getAuthErrorStatus } from "@/server/auth/pop";
 import { createErrorResponse, ErrorCode } from "@glueco/shared";
-import { getDiscoveryEntries, getPlugin } from "@/server/plugins";
+import { listEnabledConnectors, resolveConnector } from "@/server/connectors/registry";
 import type { PermissionStatus } from "@prisma/client";
 
 // ============================================
@@ -65,8 +65,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get all available resources from plugins
-    const allResources = getDiscoveryEntries();
+    // Get all available resources from enabled connectors
+    const allResources = (await listEnabledConnectors()).map((c) => ({
+      resourceId: c.id,
+    }));
     
     // Get configured resources (with API keys)
     const configuredSecrets = await prisma.resourceSecret.findMany({
@@ -101,23 +103,23 @@ export async function GET(request: NextRequest) {
     // Build available resources list
     const grantedResourceIds = new Set(app.permissions.map(p => p.resourceId));
     
-    const availableResources = allResources
+    const availableResources = await Promise.all(allResources
       .filter(r => configuredIds.has(r.resourceId) && grantedResourceIds.has(r.resourceId))
-      .map(r => {
+      .map(async r => {
         const resourcePerms = permissionsByResource.get(r.resourceId);
         const [resourceType, provider] = r.resourceId.split(":");
         
         // Extract models from constraints if present
         const constraints = resourcePerms?.constraints as { allowedModels?: string[] } | null;
         
-        // If allowedModels is set and non-empty, use it; otherwise get all models from plugin
+        // If allowedModels is set and non-empty, use it; otherwise the
+        // connector's model catalog (wildcard: all models allowed)
         let models: string[] = [];
         if (constraints?.allowedModels && constraints.allowedModels.length > 0) {
           models = constraints.allowedModels;
         } else {
-          // Get plugin's default models (wildcard: all models allowed)
-          const plugin = getPlugin(r.resourceId);
-          models = plugin?.defaultModels ? [...plugin.defaultModels] : [];
+          const connector = await resolveConnector(r.resourceId);
+          models = connector?.document.models ? [...connector.document.models] : [];
         }
         
         return {
@@ -128,7 +130,7 @@ export async function GET(request: NextRequest) {
           models,
           expiresAt: resourcePerms?.expiresAt?.toISOString() || null,
         };
-      });
+      }));
 
     return NextResponse.json({
       appId: app.id,

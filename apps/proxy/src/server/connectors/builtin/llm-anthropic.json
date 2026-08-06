@@ -1,0 +1,54 @@
+{
+  "specVersion": "1",
+  "id": "llm:anthropic",
+  "name": "Anthropic Claude",
+  "version": "1.0.0",
+  "description": "Claude models via the Anthropic Messages API, translated to the OpenAI wire shape.",
+  "homepage": "https://anthropic.com",
+  "resourceType": "llm",
+  "adapter": "anthropic-messages",
+  "config": {
+    "baseUrl": "https://api.anthropic.com/v1",
+    "anthropicVersion": "2023-06-01"
+  },
+  "allowedHosts": ["api.anthropic.com"],
+  "actions": {
+    "chat.completions": {
+      "method": "POST",
+      "path": "/messages",
+      "streaming": true,
+      "enforce": {
+        "model": { "rule": "allowedValues", "constraint": "allowedModels" },
+        "max_tokens": { "rule": "clampMax", "constraint": "maxOutputTokens", "default": 4096 },
+        "stream": { "rule": "allowFlag", "constraint": "allowStreaming" },
+        "tools": { "rule": "forbidField", "constraint": "allowTools" }
+      },
+      "usage": {
+        "inputTokens": "usage.prompt_tokens",
+        "outputTokens": "usage.completion_tokens",
+        "totalTokens": "usage.total_tokens",
+        "model": "model"
+      }
+    }
+  },
+  "models": [
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+    "claude-3-sonnet-20240229",
+    "claude-3-haiku-20240307"
+  ],
+  "credentials": [
+    { "name": "apiKey", "type": "secret", "label": "Anthropic API key", "required": true },
+    { "name": "baseUrl", "type": "url", "label": "API base URL", "required": false }
+  ],
+  "errorMap": {
+    "401": "UNAUTHORIZED",
+    "429": "RATE_LIMITED",
+    "500": "PROVIDER_ERROR",
+    "502": "PROVIDER_ERROR",
+    "503": "PROVIDER_ERROR",
+    "529": "OVERLOADED"
+  },
+  "errorCodePath": "error.type"
+}

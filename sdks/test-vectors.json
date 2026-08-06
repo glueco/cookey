@@ -1,0 +1,44 @@
+{
+  "description": "PoP v1 cross-language test vectors. Seed is a fixed RFC 8032 test seed — NEVER use in production.",
+  "seedHex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "seedBase64": "nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A=",
+  "publicKeyBase64": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "vectors": [
+    {
+      "name": "post-chat-completion",
+      "method": "POST",
+      "pathWithQuery": "/r/llm/groq/v1/chat/completions",
+      "appId": "app_testvector_1",
+      "ts": "1730000000",
+      "nonce": "vectornonce000001",
+      "body": "{\"model\":\"llama-3.3-70b-versatile\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}",
+      "bodyHashBase64Url": "2H09d4yg-XIuJP6HJB49KhIZCyoYi0RzKD4JrYJ32OY",
+      "canonicalRequest": "v1\nPOST\n/r/llm/groq/v1/chat/completions\napp_testvector_1\n1730000000\nvectornonce000001\n2H09d4yg-XIuJP6HJB49KhIZCyoYi0RzKD4JrYJ32OY\n",
+      "signatureBase64Url": "2kTUCwmcU5ENHQSD1EG0M-XxKwsH6KXYlAkQRy3fTGGWjIweRplVpWKZQleeWFYz-1rpcNE6JjLEpEY9iKiaAg"
+    },
+    {
+      "name": "get-with-query",
+      "method": "GET",
+      "pathWithQuery": "/api/app/status?verbose=1",
+      "appId": "app_testvector_2",
+      "ts": "1730000001",
+      "nonce": "vectornonce000002",
+      "body": "",
+      "bodyHashBase64Url": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "canonicalRequest": "v1\nGET\n/api/app/status?verbose=1\napp_testvector_2\n1730000001\nvectornonce000002\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU\n",
+      "signatureBase64Url": "oJ5bjxvyZY7HBeT4_2vymu_BYsbagkl22w6ht4VUJLonynsMQY4mDvjP6DNGnttrGCaR90oqWtASjWTuaRV9CQ"
+    },
+    {
+      "name": "unicode-body",
+      "method": "POST",
+      "pathWithQuery": "/r/mail/resend/emails/send",
+      "appId": "app_testvector_3",
+      "ts": "1730000002",
+      "nonce": "vectornonce000003",
+      "body": "{\"subject\":\"héllo wörld 🎉\"}",
+      "bodyHashBase64Url": "sgRQ52wWNhCTn8Rni_hL883X2glAd8QWIgakxBNYGFM",
+      "canonicalRequest": "v1\nPOST\n/r/mail/resend/emails/send\napp_testvector_3\n1730000002\nvectornonce000003\nsgRQ52wWNhCTn8Rni_hL883X2glAd8QWIgakxBNYGFM\n",
+      "signatureBase64Url": "uU9YcHxEE4fzkPutsxD9aULLoCHg-KPWGyD-QsAZEzUbchNN9moIF7QHybTTjrHi7mPkcXKvw_o4sp3_SOcdBw"
+    }
+  ]
+}

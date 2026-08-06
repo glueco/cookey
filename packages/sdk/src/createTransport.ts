@@ -13,18 +13,15 @@
  *   appId: "app_abc123",
  * });
  *
- * // Use with plugins
- * import { groq } from "@glueco/plugin-llm-groq/client";
- * const client = groq(transport);
- * const response = await client.chatCompletions({...});
+ * const response = await transport.request("llm:groq", "chat.completions", {...});
  */
 
-import { sha256 } from "@noble/hashes/sha256";
+import { sha256 } from "./webcrypto";
 import {
   buildCanonicalRequestV1,
   getPathWithQuery,
   POP_VERSION,
-} from "@glueco/shared";
+} from "./canonical";
 import {
   loadSeedFromEnv,
   signToBase64Url,
@@ -61,7 +58,7 @@ export interface CreateTransportOptions {
  * Uses GLUECO_PRIVATE_KEY from environment to sign all requests.
  *
  * @param options Configuration options
- * @returns GatewayTransport for use with plugin clients
+ * @returns GatewayTransport for making signed requests
  *
  * @throws KeyError if GLUECO_PRIVATE_KEY env var is missing or invalid
  *
@@ -70,10 +67,6 @@ export interface CreateTransportOptions {
  *   proxyUrl: "https://gateway.example.com",
  *   appId: "app_abc123",
  * });
- *
- * // Use with plugins
- * import { groq } from "@glueco/plugin-llm-groq/client";
- * const client = groq(transport);
  */
 export function createTransport(
   options: CreateTransportOptions
@@ -85,14 +78,14 @@ export function createTransport(
   const seed = loadSeedFromEnv();
 
   // Helper to sign a request
-  const signRequest = (
+  const signRequest = async (
     method: string,
     url: URL,
     bodyBytes: Uint8Array
-  ): Record<string, string> => {
+  ): Promise<Record<string, string>> => {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = generateNonce();
-    const bodyHash = base64UrlEncode(sha256(bodyBytes));
+    const bodyHash = base64UrlEncode(await sha256(bodyBytes));
     const pathWithQuery = getPathWithQuery(url);
 
     const canonicalPayload = buildCanonicalRequestV1({
@@ -104,7 +97,7 @@ export function createTransport(
       bodyHash,
     });
 
-    const signature = signToBase64Url(
+    const signature = await signToBase64Url(
       seed,
       new TextEncoder().encode(canonicalPayload)
     );
@@ -134,7 +127,7 @@ export function createTransport(
 
       const method = reqOptions?.method ?? "POST";
       const bodyBytes = new TextEncoder().encode(JSON.stringify(payload));
-      const popHeaders = signRequest(method, url, bodyBytes);
+      const popHeaders = await signRequest(method, url, bodyBytes);
 
       const response = await fetchFn(url.toString(), {
         method,
@@ -193,7 +186,7 @@ export function createTransport(
           ? { ...payload, stream: true }
           : payload;
       const bodyBytes = new TextEncoder().encode(JSON.stringify(streamPayload));
-      const popHeaders = signRequest(method, url, bodyBytes);
+      const popHeaders = await signRequest(method, url, bodyBytes);
 
       const response = await fetchFn(url.toString(), {
         method,

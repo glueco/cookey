@@ -1,0 +1,64 @@
+{
+  "specVersion": "1",
+  "id": "llm:openai",
+  "name": "OpenAI",
+  "version": "1.0.0",
+  "description": "GPT and o-series models via the OpenAI API.",
+  "homepage": "https://openai.com",
+  "resourceType": "llm",
+  "adapter": "openai-compatible",
+  "config": {
+    "baseUrl": "https://api.openai.com/v1",
+    "auth": { "type": "bearer" },
+    "extraHeaders": { "OpenAI-Organization": "{credential:organization}" }
+  },
+  "allowedHosts": ["api.openai.com"],
+  "actions": {
+    "chat.completions": {
+      "method": "POST",
+      "path": "/chat/completions",
+      "streaming": true,
+      "enforce": {
+        "model": { "rule": "allowedValues", "constraint": "allowedModels" },
+        "max_tokens": { "rule": "clampMax", "constraint": "maxOutputTokens", "default": 16384 },
+        "stream": { "rule": "allowFlag", "constraint": "allowStreaming" },
+        "tools": { "rule": "forbidField", "constraint": "allowTools" }
+      },
+      "usage": {
+        "inputTokens": "usage.prompt_tokens",
+        "outputTokens": "usage.completion_tokens",
+        "totalTokens": "usage.total_tokens",
+        "model": "model"
+      }
+    },
+    "models.list": { "method": "GET", "path": "/models", "streaming": false }
+  },
+  "models": [
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "o3",
+    "o3-pro",
+    "o4-mini"
+  ],
+  "credentials": [
+    { "name": "apiKey", "type": "secret", "label": "OpenAI API key", "required": true },
+    { "name": "organization", "type": "string", "label": "Organization ID", "description": "Optional OpenAI organization ID", "required": false },
+    { "name": "baseUrl", "type": "url", "label": "API base URL", "description": "Optional, for Azure OpenAI or proxies", "required": false }
+  ],
+  "errorMap": {
+    "401": "UNAUTHORIZED",
+    "429": "RATE_LIMITED",
+    "insufficient_quota": "QUOTA_EXCEEDED",
+    "500": "PROVIDER_ERROR",
+    "502": "PROVIDER_ERROR",
+    "503": "PROVIDER_ERROR"
+  },
+  "errorCodePath": "error.code"
+}

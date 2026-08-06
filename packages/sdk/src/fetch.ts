@@ -1,9 +1,9 @@
-import { sha256 } from "@noble/hashes/sha256";
+import { sha256 } from "./webcrypto";
 import {
   buildCanonicalRequestV1,
   getPathWithQuery,
   POP_VERSION,
-} from "@glueco/shared";
+} from "./canonical";
 import { loadSeedFromEnv, signToBase64Url, base64UrlEncode, generateNonce } from "./keys";
 import { GatewayError, parseGatewayError } from "./errors";
 
@@ -105,7 +105,7 @@ export function createGatewayFetch(options: GatewayFetchOptions): GatewayFetch {
     // Generate PoP headers
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = generateNonce();
-    const bodyHash = base64UrlEncode(sha256(bodyBytes));
+    const bodyHash = base64UrlEncode(await sha256(bodyBytes));
 
     // Get path with query string for canonical request
     const pathWithQuery = getPathWithQuery(url);
@@ -121,7 +121,7 @@ export function createGatewayFetch(options: GatewayFetchOptions): GatewayFetch {
     });
 
     // Sign the payload
-    const signature = signToBase64Url(
+    const signature = await signToBase64Url(
       actualSeed,
       new TextEncoder().encode(canonicalPayload),
     );

@@ -283,6 +283,14 @@ export default function DashboardPage() {
                   </>
                 )}
               </div>
+              {/* Connectors */}
+              <a
+                href="/connectors"
+                className="btn-ghost text-slate-600 dark:text-slate-300 text-sm"
+                title="Connectors"
+              >
+                Connectors
+              </a>
               {/* Notifications */}
               <NotificationsBell />
               {/* Logout Button */}
@@ -1720,15 +1728,22 @@ function ResourcesTab({
   useEffect(() => {
     const fetchPlugins = async () => {
       try {
-        const res = await fetch("/api/admin/plugins", {
+        const res = await fetch("/api/admin/connectors", {
           headers: authHeaders,
         });
         if (res.ok) {
           const data = await res.json();
-          setAvailablePlugins(data.plugins || []);
-          // Set initial form data to first available plugin
-          if (data.plugins && data.plugins.length > 0) {
-            const firstPlugin = data.plugins[0];
+          const connectors = (data.connectors || []).map(
+            (c: { connectorId: string; resourceType: string; document: { name: string } }) => ({
+              id: c.connectorId,
+              name: c.document.name,
+              resourceType: c.resourceType,
+            }),
+          );
+          setAvailablePlugins(connectors);
+          // Set initial form data to first available connector
+          if (connectors.length > 0) {
+            const firstPlugin = connectors[0];
             setFormData({
               resourceId: firstPlugin.id,
               name: firstPlugin.name,

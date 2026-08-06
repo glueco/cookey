@@ -1,0 +1,51 @@
+{
+  "specVersion": "1",
+  "id": "mail:resend",
+  "name": "Resend",
+  "version": "1.0.0",
+  "description": "Transactional email via Resend.",
+  "homepage": "https://resend.com",
+  "resourceType": "mail",
+  "adapter": "mail-send",
+  "config": {
+    "baseUrl": "https://api.resend.com",
+    "auth": { "type": "bearer" }
+  },
+  "allowedHosts": ["api.resend.com"],
+  "actions": {
+    "emails.send": {
+      "method": "POST",
+      "path": "/emails",
+      "streaming": false,
+      "enforce": {
+        "from": { "rule": "domainAllowlist", "constraint": "allowedFromDomains" },
+        "to": [
+          { "rule": "domainAllowlist", "constraint": "allowedToDomains" },
+          { "rule": "maxItems", "constraint": "maxRecipients" }
+        ],
+        "cc": [
+          { "rule": "domainAllowlist", "constraint": "allowedToDomains" },
+          { "rule": "maxItems", "constraint": "maxRecipients" }
+        ],
+        "bcc": [
+          { "rule": "domainAllowlist", "constraint": "allowedToDomains" },
+          { "rule": "maxItems", "constraint": "maxRecipients" }
+        ],
+        "html": { "rule": "forbidField", "constraint": "allowHtml" },
+        "attachments": { "rule": "forbidField", "constraint": "allowAttachments" }
+      }
+    }
+  },
+  "credentials": [
+    { "name": "apiKey", "type": "secret", "label": "Resend API key", "description": "Starts with re_", "required": true }
+  ],
+  "errorMap": {
+    "401": "UNAUTHORIZED",
+    "422": "VALIDATION_ERROR",
+    "429": "RATE_LIMITED",
+    "500": "PROVIDER_ERROR",
+    "502": "PROVIDER_ERROR",
+    "503": "PROVIDER_ERROR"
+  },
+  "errorCodePath": "name"
+}

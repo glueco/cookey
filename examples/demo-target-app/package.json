@@ -10,12 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@glueco/plugin-llm-gemini": "^1.0.0",
-    "@glueco/plugin-llm-groq": "^1.0.0",
-    "@glueco/plugin-llm-openai": "^1.0.0",
-    "@glueco/plugin-mail-resend": "^1.0.0",
-    "@glueco/sdk": "^0.4.0",
-    "@glueco/shared": "^0.3.0",
+    "@glueco/sdk": "*",
     "next": "^14.1.0",
     "openai": "^7.4.0",
     "react": "^18.2.0",

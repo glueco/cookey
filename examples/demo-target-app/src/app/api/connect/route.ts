@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const { proxyUrl, connectCode } = parsePairingString(pairingString);
 
     // Get public key from server-side private key
-    const publicKey = getPublicKey();
+    const publicKey = await getPublicKey();
 
     // Prepare request payload for proxy
     const preparePayload = {

@@ -13,16 +13,10 @@ import {
   checkOriginGate,
 } from "@/server/auth/resolve";
 import { ipMatchesList } from "@/lib/ip-match";
-import {
-  getPlugin,
-  type PluginResourceConstraints,
-  type PluginExecuteResult,
-} from "@/server/plugins";
-import {
-  enforcePolicy,
-  constraintsToPolicy,
-  hasEnforceableConstraints,
-} from "./enforce";
+import { resolveConnector } from "@/server/connectors/registry";
+import type { ConnectorDocument } from "@/server/connectors/schema";
+import { applyEnforcement, extractUsage, mapUpstreamError } from "./enforce";
+import { UpstreamError, type AdapterResult } from "@/server/adapters";
 import { checkPermissionValidity } from "./access-policy";
 import { RequestDecision } from "@prisma/client";
 import type { Grant, GrantAuth, ResourcePermission } from "@prisma/client";
@@ -47,6 +41,8 @@ export interface GatewayRequest {
   stream: boolean;
   /** Raw body bytes for forwarding - avoids re-reading consumed stream */
   rawBody?: Uint8Array;
+  /** http-passthrough: remaining sub-path (incl. query) to forward */
+  subPath?: string;
 }
 
 export interface GatewayResult {
@@ -55,7 +51,7 @@ export interface GatewayResult {
   decisionReason?: string;
 
   // On success
-  result?: PluginExecuteResult;
+  result?: AdapterResult & { usage?: ReturnType<typeof extractUsage> };
 
   // On error
   error?: GatewayError;
@@ -71,6 +67,7 @@ export interface GatewayResult {
       outputTokens?: number;
       totalTokens?: number;
     };
+    costEstimate?: number;
   };
 }
 
@@ -292,11 +289,11 @@ export async function processGatewayRequest(
     }
 
     // ============================================
-    // STAGE 8: Plugin Resolution + Schema-First Validation
+    // STAGE 8: Connector Resolution + Enforcement (generic engine)
     // ============================================
-    const plugin = getPlugin(gatewayRequest.resourceId);
+    const resolved = await resolveConnector(gatewayRequest.resourceId);
 
-    if (!plugin) {
+    if (!resolved) {
       return {
         success: false,
         decision: RequestDecision.ERROR,
@@ -310,107 +307,132 @@ export async function processGatewayRequest(
       };
     }
 
-    const constraints = permission.constraints as Record<
-      string,
-      unknown
-    > | null;
-    const pluginConstraints = (constraints as PluginResourceConstraints) || {};
+    const { document: connector, adapter } = resolved;
+    const actionSpec = connector.actions[gatewayRequest.action];
 
-    const validation = plugin.validateAndShape(
-      gatewayRequest.action,
-      gatewayRequest.input,
-      pluginConstraints,
-    );
-
-    if (!validation.valid) {
-      log.warn("Request contract validation failed", {
-        resourceId: gatewayRequest.resourceId,
-        action: gatewayRequest.action,
-        error: validation.error,
-      });
+    if (!actionSpec) {
       return {
         success: false,
-        decision: RequestDecision.DENIED_CONSTRAINT,
-        decisionReason: validation.error,
+        decision: RequestDecision.ERROR,
+        decisionReason: `Unsupported action: ${gatewayRequest.action}`,
         error: {
-          status: 422,
-          code: ErrorCode.ERR_CONTRACT_VALIDATION_FAILED,
-          message: validation.error!,
+          status: getErrorStatus(ErrorCode.ERR_UNSUPPORTED_ACTION),
+          code: ErrorCode.ERR_UNSUPPORTED_ACTION,
+          message: `Action '${gatewayRequest.action}' not supported by ${gatewayRequest.resourceId}`,
         },
         metadata: baseMetadata,
       };
     }
 
-    const enforcement = validation.enforcement || {};
+    if (gatewayRequest.stream && !actionSpec.streaming) {
+      return {
+        success: false,
+        decision: RequestDecision.DENIED_CONSTRAINT,
+        decisionReason: "Streaming not supported for this action",
+        error: {
+          status: 400,
+          code: ErrorCode.ERR_INVALID_REQUEST,
+          message: `Action '${gatewayRequest.action}' does not support streaming`,
+        },
+        metadata: baseMetadata,
+      };
+    }
 
-    // ============================================
-    // STAGE 9: Policy Enforcement
-    // ============================================
-    if (hasEnforceableConstraints(constraints)) {
-      const policy = constraintsToPolicy(constraints);
-      const enforcementResult = enforcePolicy(policy, enforcement);
+    const constraints = permission.constraints as Record<
+      string,
+      unknown
+    > | null;
 
-      if (!enforcementResult.allowed) {
-        log.warn("Policy enforcement failed", {
-          resourceId: gatewayRequest.resourceId,
-          action: gatewayRequest.action,
-          violation: enforcementResult.violation,
-        });
-        return {
-          success: false,
-          decision: RequestDecision.DENIED_CONSTRAINT,
-          decisionReason: enforcementResult.violation?.message,
-          error: {
-            status: 403,
-            code:
-              enforcementResult.violation?.code ||
-              ErrorCode.ERR_POLICY_VIOLATION,
-            message: enforcementResult.violation?.message || "Policy violation",
-          },
-          metadata: { ...baseMetadata, model: enforcement.model },
-        };
-      }
+    // Invariant: an action with enforcement entries requires a parseable
+    // JSON object body — malformed payloads cannot bypass enforcement
+    const hasEnforcement = Object.keys(actionSpec.enforce ?? {}).length > 0;
+    if (hasEnforcement && gatewayRequest.input === undefined) {
+      return {
+        success: false,
+        decision: RequestDecision.DENIED_CONSTRAINT,
+        decisionReason: "Body required for enforced action",
+        error: {
+          status: 400,
+          code: ErrorCode.ERR_INVALID_REQUEST,
+          message: "A JSON request body is required for this action",
+        },
+        metadata: baseMetadata,
+      };
+    }
 
-      // Model-specific rate limiting (constraints.modelRateLimits)
-      if (enforcement.model && constraints?.modelRateLimits) {
-        const modelRateLimits = constraints.modelRateLimits as Array<{
-          model: string;
-          maxRequests: number;
-          windowSeconds: number;
-        }>;
+    const enforcementResult = applyEnforcement(
+      actionSpec,
+      connector,
+      constraints,
+      gatewayRequest.input,
+    );
 
-        const modelLimit = modelRateLimits.find(
-          (m) =>
-            m.model === enforcement.model ||
-            m.model === enforcement.model?.replace(/^models\//, ""),
+    if (!enforcementResult.allowed) {
+      log.warn("Policy enforcement failed", {
+        resourceId: gatewayRequest.resourceId,
+        action: gatewayRequest.action,
+        violation: enforcementResult.violation,
+      });
+      const isBadRequest =
+        enforcementResult.violation.code === ErrorCode.ERR_INVALID_REQUEST;
+      return {
+        success: false,
+        decision: RequestDecision.DENIED_CONSTRAINT,
+        decisionReason: enforcementResult.violation.message,
+        error: {
+          status: isBadRequest ? 400 : 403,
+          code: enforcementResult.violation.code,
+          message: enforcementResult.violation.message,
+        },
+        metadata: baseMetadata,
+      };
+    }
+
+    const shapedInput = enforcementResult.body;
+    const requestedModel =
+      shapedInput && typeof shapedInput === "object"
+        ? ((shapedInput as { model?: string }).model ?? undefined)
+        : undefined;
+
+    // Model-specific rate limiting (constraints.modelRateLimits)
+    if (requestedModel && constraints?.modelRateLimits) {
+      const modelRateLimits = constraints.modelRateLimits as Array<{
+        model: string;
+        maxRequests: number;
+        windowSeconds: number;
+      }>;
+
+      const modelLimit = modelRateLimits.find(
+        (m) =>
+          m.model === requestedModel ||
+          m.model === requestedModel.replace(/^models\//, ""),
+      );
+
+      if (modelLimit) {
+        const modelRateLimitResult = await checkRateLimit(
+          `rl:${grant.id}:${gatewayRequest.resourceId}:${gatewayRequest.action}:model:${requestedModel}`,
+          modelLimit.maxRequests,
+          modelLimit.windowSeconds,
         );
 
-        if (modelLimit) {
-          const modelRateLimitResult = await checkRateLimit(
-            `rl:${grant.id}:${gatewayRequest.resourceId}:${gatewayRequest.action}:model:${enforcement.model}`,
-            modelLimit.maxRequests,
-            modelLimit.windowSeconds,
-          );
-
-          if (!modelRateLimitResult.allowed) {
-            return {
-              success: false,
-              decision: RequestDecision.DENIED_RATE_LIMIT,
-              decisionReason: `Model rate limit exceeded for '${enforcement.model}'. Retry after ${new Date(modelRateLimitResult.resetAt * 1000).toISOString()}`,
-              error: {
-                status: 429,
-                code: ErrorCode.ERR_RATE_LIMIT_EXCEEDED,
-                message: `Rate limit exceeded for model '${enforcement.model}'. Remaining: ${modelRateLimitResult.remaining}`,
-              },
-              metadata: { ...baseMetadata, model: enforcement.model },
-            };
-          }
+        if (!modelRateLimitResult.allowed) {
+          return {
+            success: false,
+            decision: RequestDecision.DENIED_RATE_LIMIT,
+            decisionReason: `Model rate limit exceeded for '${requestedModel}'`,
+            error: {
+              status: 429,
+              code: ErrorCode.ERR_RATE_LIMIT_EXCEEDED,
+              message: `Rate limit exceeded for model '${requestedModel}'. Remaining: ${modelRateLimitResult.remaining}`,
+            },
+            metadata: { ...baseMetadata, model: requestedModel },
+          };
         }
       }
     }
 
     // ============================================
-    // STAGE 10: Get Resource Secret & Execute
+    // STAGE 9: Resolve Credentials & Execute (single egress choke point)
     // ============================================
     const resourceSecret = await prisma.resourceSecret.findUnique({
       where: { resourceId: gatewayRequest.resourceId },
@@ -430,33 +452,92 @@ export async function processGatewayRequest(
       };
     }
 
-    // Decrypt the secret (only inside execute scope)
+    // Decrypt only inside the execute scope
     const secret = decryptSecret({
       encryptedKey: resourceSecret.encryptedKey,
       keyIv: resourceSecret.keyIv,
     });
 
+    // Credential fields (organization, baseUrl override, ...) live in
+    // ResourceSecret.config; a baseUrl override applies over the frozen
+    // connector config but stays subject to the egress pin below.
+    const secretConfig =
+      (resourceSecret.config as Record<string, unknown> | null) ?? {};
+    const credentials: Record<string, string> = { apiKey: secret };
+    for (const [key, value] of Object.entries(secretConfig)) {
+      if (typeof value === "string") credentials[key] = value;
+    }
+    const effectiveConfig: Record<string, unknown> = {
+      ...connector.config,
+      ...(typeof secretConfig.baseUrl === "string" && {
+        baseUrl: secretConfig.baseUrl,
+      }),
+    };
+
     try {
-      const result = await plugin.execute(
-        gatewayRequest.action,
-        validation.shapedInput,
+      const built = adapter.buildRequest(
+        actionSpec,
+        shapedInput,
         {
           secret,
-          config: resourceSecret.config as Record<string, unknown> | null,
+          credentials,
+          config: effectiveConfig,
+          connector,
+          subPath: gatewayRequest.subPath,
         },
         { stream: gatewayRequest.stream },
       );
 
-      const latencyMs = Date.now() - startTime;
-      const modelUsed = result.usage?.model || enforcement.model;
-
-      // Record token usage against the permission (async, don't await)
-      if (result.usage?.totalTokens) {
-        recordTokenUsage(permission.id, result.usage.totalTokens).catch(
-          (err) => {
-            log.warn("Failed to record token usage", { error: err });
+      // EGRESS PIN (hard invariant): outbound requests may only target
+      // hosts in the connector's frozen allowedHosts
+      const targetHost = new URL(built.url).hostname.toLowerCase();
+      const allowedHosts = (connector.allowedHosts ?? []).map((h) =>
+        h.toLowerCase(),
+      );
+      if (!allowedHosts.includes(targetHost)) {
+        log.error("Egress guard blocked outbound request", {
+          resourceId: gatewayRequest.resourceId,
+          targetHost,
+        });
+        return {
+          success: false,
+          decision: RequestDecision.ERROR,
+          decisionReason: `Egress blocked: ${targetHost} not in allowedHosts`,
+          error: {
+            status: 502,
+            code: ErrorCode.ERR_UPSTREAM_ERROR,
+            message: `Refusing to contact '${targetHost}' — not in the connector's allowed hosts`,
           },
-        );
+          metadata: baseMetadata,
+        };
+      }
+
+      const upstream = await fetch(built.url, {
+        method: built.method,
+        headers: built.headers,
+        ...(built.body !== undefined && { body: built.body }),
+      });
+
+      if (!upstream.ok) {
+        throw new UpstreamError(upstream.status, await upstream.text());
+      }
+
+      const result = await adapter.parseResponse(actionSpec, upstream, {
+        stream: gatewayRequest.stream,
+      });
+
+      const latencyMs = Date.now() - startTime;
+
+      // Usage extraction (non-streaming; streaming keeps plugin-era behavior)
+      const usage = result.response
+        ? extractUsage(actionSpec.usage, result.response)
+        : {};
+      const modelUsed = usage.model || requestedModel;
+
+      if (usage.totalTokens) {
+        recordTokenUsage(permission.id, usage.totalTokens).catch((err) => {
+          log.warn("Failed to record token usage", { error: err });
+        });
       }
 
       log.info("Request completed successfully", {
@@ -466,53 +547,78 @@ export async function processGatewayRequest(
         action: gatewayRequest.action,
         durationMs: latencyMs,
         model: modelUsed,
-        tokens: result.usage?.totalTokens,
+        tokens: usage.totalTokens,
       });
 
       return {
         success: true,
         decision: RequestDecision.ALLOWED,
-        result,
+        result: { ...result, usage },
         metadata: {
           ...baseMetadata,
           model: modelUsed,
           latencyMs,
-          usage: result.usage
+          usage: usage.totalTokens !== undefined || usage.inputTokens !== undefined
             ? {
-                inputTokens: result.usage.inputTokens,
-                outputTokens: result.usage.outputTokens,
-                totalTokens: result.usage.totalTokens,
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                totalTokens: usage.totalTokens,
               }
             : undefined,
+          costEstimate: estimateCost(connector, modelUsed, usage),
         },
       };
     } catch (error) {
-      const mapped = plugin.mapError(error);
       const latencyMs = Date.now() - startTime;
 
-      log.error("Plugin execution failed", {
+      if (error instanceof UpstreamError) {
+        const mapped = mapUpstreamError(
+          connector,
+          error.status,
+          error.body,
+          secret,
+        );
+        log.error("Upstream request failed", {
+          appId: grant.appId,
+          grantId: grant.id,
+          resourceId: gatewayRequest.resourceId,
+          action: gatewayRequest.action,
+          errorCode: mapped.code,
+          durationMs: latencyMs,
+        });
+        return {
+          success: false,
+          decision: RequestDecision.ERROR,
+          decisionReason: mapped.message,
+          error: mapped,
+          metadata: { ...baseMetadata, latencyMs },
+        };
+      }
+
+      log.error("Adapter execution failed", {
         appId: grant.appId,
         grantId: grant.id,
         resourceId: gatewayRequest.resourceId,
         action: gatewayRequest.action,
-        errorCode: mapped.code,
         durationMs: latencyMs,
-        errorMessage: mapped.message,
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown error",
       });
 
       return {
         success: false,
         decision: RequestDecision.ERROR,
-        decisionReason: mapped.message,
+        decisionReason:
+          error instanceof Error ? error.message : "Unknown error",
         error: {
-          status: mapped.status,
-          code: mapped.code,
-          message: mapped.message,
+          status: 502,
+          code: ErrorCode.ERR_UPSTREAM_ERROR,
+          message: "Upstream request failed",
         },
         metadata: { ...baseMetadata, latencyMs },
       };
     }
-  } catch (error) {
+    } catch (error) {
     const latencyMs = Date.now() - startTime;
     log.errorWithStack(
       "Gateway pipeline error",
@@ -540,6 +646,26 @@ export async function processGatewayRequest(
 }
 
 // ============================================
+// COST ESTIMATION (from connector pricing, when present)
+// ============================================
+
+function estimateCost(
+  connector: ConnectorDocument,
+  model: string | undefined,
+  usage: { inputTokens?: number; outputTokens?: number },
+): number | undefined {
+  if (!model || !connector.pricing) return undefined;
+  const pricing =
+    connector.pricing[model] ??
+    connector.pricing[model.replace(/^models\//, "")];
+  if (!pricing) return undefined;
+  const input = ((usage.inputTokens ?? 0) * pricing.inputPerMTok) / 1_000_000;
+  const output =
+    ((usage.outputTokens ?? 0) * pricing.outputPerMTok) / 1_000_000;
+  return input + output;
+}
+
+// ============================================
 // AUDIT LOGGING (Async)
 // ============================================
 
@@ -564,6 +690,7 @@ export async function logRequest(
         decision: result.decision,
         decisionReason: result.decisionReason,
         latencyMs: result.metadata?.latencyMs,
+        costEstimate: result.metadata?.costEstimate,
         metadata:
           result.metadata?.model || usage
             ? {

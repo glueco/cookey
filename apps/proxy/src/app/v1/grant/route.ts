@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { resolveAuth, checkOriginGate } from "@/server/auth/resolve";
 import { getUsageSnapshot } from "@/server/limits/budget";
-import { getPlugin } from "@/server/plugins";
+import { resolveConnector } from "@/server/connectors/registry";
 import { createErrorResponse } from "@glueco/shared";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
       const allowedModels = Array.isArray(constraints.allowedModels)
         ? (constraints.allowedModels as string[])
         : null;
-      const providerModels = getPlugin(resourceId)?.defaultModels ?? [];
+      const providerModels =
+        (await resolveConnector(resourceId))?.document.models ?? [];
       const models =
         allowedModels && allowedModels.length > 0
           ? allowedModels.filter(

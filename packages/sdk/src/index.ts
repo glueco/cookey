@@ -1,24 +1,25 @@
 // ============================================
-// @glueco/sdk - PERSONAL RESOURCE GATEWAY SDK
-// Thin transport + signing layer (env-only design)
+// @glueco/sdk — COOKEY GATEWAY SDK (PoP only)
+// Thin Ed25519 signing + transport layer, zero runtime dependencies.
+//
+// Bearer-token users DO NOT need this SDK: a ck_ token works with any
+// HTTP client or an unmodified OpenAI SDK. This package exists solely
+// for long-lived PoP grants.
 // ============================================
 
-// Simple transport creation (RECOMMENDED)
+// Simple transport creation (RECOMMENDED for PoP)
 // Uses GLUECO_PRIVATE_KEY from environment
 export { createTransport, type CreateTransportOptions } from "./createTransport";
 
-// Transport interface for plugin clients
-// This is the primary interface plugins should depend on
+// Transport interface
 export {
   type GatewayTransport,
   type GatewayRequestOptions,
   type GatewayResponse,
   type GatewayStreamResponse,
-  type PluginClientFactory,
-  type PluginClient,
 } from "./transport";
 
-// Core transport (legacy - prefer createTransport)
+// PoP-signed fetch wrapper (use with vendor SDKs that accept custom fetch)
 export {
   createGatewayFetch,
   createGatewayFetchFromEnv,
@@ -27,7 +28,7 @@ export {
   type GatewayFetch,
 } from "./fetch";
 
-// Connect/pairing flow
+// Connect/pairing flow (submits grant documents to /api/connect/prepare)
 export {
   parsePairingString,
   createPairingString,
@@ -35,16 +36,26 @@ export {
 } from "./pairing";
 export {
   connect,
+  submitGrant,
   handleCallback,
   ConnectError,
   type ConnectOptions,
   type ConnectResult,
+  type GrantSubmitOptions,
 } from "./connect";
 
 // Errors
 export { GatewayError, parseGatewayError, isGatewayError } from "./errors";
 
-// Keys (env-only - server-side only!)
+// Canonical PoP v1 wire contract (vendored; see docs/POP_PROTOCOL.md)
+export {
+  POP_VERSION,
+  buildCanonicalRequestV1,
+  getPathWithQuery,
+  type CanonicalRequestParams,
+} from "./canonical";
+
+// Keys (env-loading is server-side only!)
 export {
   loadSeedFromEnv,
   publicKeyFromSeed,
@@ -52,21 +63,12 @@ export {
   signWithSeed,
   signToBase64Url,
   verify,
+  generateKeyPair,
   generateNonce,
   KeyError,
   ENV_PRIVATE_KEY,
+  base64Encode,
+  base64Decode,
   base64UrlEncode,
   base64UrlDecode,
 } from "./keys";
-
-// High-level client (legacy - prefer createTransport)
-export {
-  GatewayClient,
-  MemoryConfigStorage,
-  FileConfigStorage,
-  EnvConfigStorage,
-  type GatewayClientOptions,
-  type ConfigStorage,
-  type GatewayConfig,
-} from "./client";
-

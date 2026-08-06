@@ -444,3 +444,30 @@ model Notification {
 
   @@index([readAt, createdAt])
 }
+
+// ============================================
+// CONNECTORS (provider integrations as frozen data)
+// ============================================
+
+model Connector {
+  id              String          @id @default(cuid())
+  connectorId     String          @unique // "llm:groq" — matches resourceId format
+  resourceType    String
+  version         String // semver from the document
+  source          ConnectorSource
+  sourceUrl       String? // fetch origin for REGISTRY/URL
+  document        Json // the FROZEN connector JSON
+  enabled         Boolean         @default(true)
+  updateAvailable Json? // {version, fetchedAt} recorded by cron, never auto-applied
+  installedAt     DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([resourceType, enabled])
+}
+
+enum ConnectorSource {
+  BUILTIN
+  REGISTRY
+  URL
+  CUSTOM
+}

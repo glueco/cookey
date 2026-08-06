@@ -93,7 +93,7 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
 
   // Load seed from env and derive public key
   const seed = loadSeedFromEnv();
-  const publicKey = publicKeyFromSeed(seed);
+  const publicKey = await publicKeyFromSeed(seed);
 
   // Build permissions payload
   const permissionsPayload = requestedPermissions.map((perm) => {
@@ -154,6 +154,72 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
     approvalUrl: data.approvalUrl,
     proxyUrl: pairingInfo.proxyUrl,
     expiresAt: data.expiresAt ? new Date(data.expiresAt) : undefined,
+  };
+}
+
+// ============================================
+// GRANT DOCUMENT SUBMISSION (preferred)
+// ============================================
+
+export interface GrantSubmitOptions {
+  /** Pairing string from gateway admin */
+  pairingString: string;
+  /** The grant document (see docs/GRANT_SPEC.md). When auth is "pop"
+   *  and publicKey is omitted, it is derived from GLUECO_PRIVATE_KEY. */
+  grant: Record<string, unknown>;
+  /** Optional custom fetch */
+  fetch?: typeof fetch;
+}
+
+/**
+ * Submit a grant document to the gateway (5.2 path 2).
+ * This is the preferred connection API; `connect()` remains for the
+ * legacy flat-permission format.
+ */
+export async function submitGrant(
+  options: GrantSubmitOptions,
+): Promise<ConnectResult & { grantId?: string }> {
+  const fetchFn = resolveFetch(options.fetch);
+  const pairingInfo = parsePairingString(options.pairingString);
+
+  const grant = { ...options.grant };
+  if (grant.auth === "pop" && !grant.publicKey) {
+    const seed = loadSeedFromEnv();
+    grant.publicKey = await publicKeyFromSeed(seed);
+  }
+
+  let response: Response;
+  try {
+    response = await fetchFn(`${pairingInfo.proxyUrl}/api/connect/prepare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        connectCode: pairingInfo.connectCode,
+        grant,
+      }),
+    });
+  } catch (e) {
+    throw new ConnectError(`Failed to connect to gateway: ${e}`);
+  }
+
+  if (!response.ok) {
+    let errorMessage: string;
+    try {
+      const body = await response.json();
+      errorMessage =
+        body?.error?.message ?? body?.error ?? `Connection failed: ${response.status}`;
+    } catch {
+      errorMessage = `Connection failed: ${response.status}`;
+    }
+    throw new ConnectError(errorMessage, response.status);
+  }
+
+  const data = await response.json();
+  return {
+    approvalUrl: data.approvalUrl,
+    proxyUrl: pairingInfo.proxyUrl,
+    expiresAt: data.expiresAt ? new Date(data.expiresAt) : undefined,
+    grantId: data.grantId,
   };
 }
 

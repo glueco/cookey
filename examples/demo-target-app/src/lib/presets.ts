@@ -1,12 +1,28 @@
 // ============================================
 // PRESET TEST REQUESTS
-// Uses typed contracts from plugin packages
+// Local wire-shape types — the gateway speaks OpenAI-style chat for all
+// LLM providers, so no per-provider packages are needed.
 // ============================================
 
-import type { ChatCompletionRequest as GeminiRequest } from "@glueco/plugin-llm-gemini/contracts";
-import type { ChatCompletionRequest as GroqRequest } from "@glueco/plugin-llm-groq/contracts";
-import type { ChatCompletionRequest as OpenAIRequest } from "@glueco/plugin-llm-openai/contracts";
-import type { SendEmailRequest } from "@glueco/plugin-mail-resend/contracts";
+interface ChatRequest {
+  model: string;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  max_tokens?: number;
+  temperature?: number;
+  stream?: boolean;
+}
+
+type GeminiRequest = ChatRequest;
+type GroqRequest = ChatRequest;
+type OpenAIRequest = ChatRequest;
+
+interface SendEmailRequest {
+  from: string;
+  to: string | string[];
+  subject: string;
+  text?: string;
+  html?: string;
+}
 
 // ============================================
 // TYPES

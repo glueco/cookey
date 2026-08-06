@@ -28,9 +28,6 @@
     "tsup": "^8.0.1",
     "typescript": "^5.3.3"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/glueco/cookey.git",
@@ -40,5 +37,6 @@
     "url": "https://github.com/glueco/cookey/issues"
   },
   "homepage": "https://github.com/glueco/cookey#readme",
-  "license": "MIT"
+  "license": "MIT",
+  "private": true
 }
