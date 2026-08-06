@@ -498,6 +498,6 @@ import type {
 
 ## Support
 
-- **Issues:** [GitHub Issues](https://github.com/glueco/gateway/issues)
+- **Issues:** [GitHub Issues](https://github.com/glueco/cookey/issues)
 - **Documentation:** [docs/](./docs/)
 - **Demo App:** [demo-target-app](https://demo-target-app.vercel.app)

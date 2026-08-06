@@ -236,7 +236,7 @@ export default function AdminLoginPage() {
         {/* Docs Link */}
         <div className="mt-6 text-center">
           <a
-            href="https://github.com/glueco/gateway/blob/master/docs/ADMIN_GUIDE.md"
+            href="https://github.com/glueco/cookey/blob/master/docs/ADMIN_GUIDE.md"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 font-medium transition-colors"

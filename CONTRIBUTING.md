@@ -37,7 +37,7 @@ proxy.plugins.ts         # Enable / disable plugins
 
 ```bash
 # Clone
-git clone https://github.com/glueco/gateway.git
+git clone https://github.com/glueco/cookey.git
 cd gateway
 
 # Install dependencies

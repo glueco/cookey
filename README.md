@@ -71,7 +71,7 @@ Your Gateway acts as a **secure proxy** between applications and your API provid
 
 ## Features
 
-### �️ Cryptographic Authentication
+### 🛡️ Cryptographic Authentication
 
 PoP (Proof-of-Possession) ensures only authorized apps can make requests. No shared secrets, no leaked tokens.
 
@@ -120,7 +120,7 @@ Watch real-time usage stats. Revoke access anytime.
 
 ### Deploy to Vercel (Recommended)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/glueco/gateway)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/glueco/cookey)
 
 See the [Admin Deployment Guide](./docs/ADMIN_GUIDE.md) for detailed setup instructions.
 
@@ -128,7 +128,7 @@ See the [Admin Deployment Guide](./docs/ADMIN_GUIDE.md) for detailed setup instr
 
 ```bash
 # Clone repository
-git clone https://github.com/glueco/gateway.git
+git clone https://github.com/glueco/cookey.git
 cd gateway
 
 # Install dependencies

@@ -1,6 +1,6 @@
 # @glueco/plugin-llm-anthropic
 
-Anthropic Claude LLM plugin for [Glueco Gateway](https://github.com/glueco/gateway).
+Anthropic Claude LLM plugin for [Glueco Gateway](https://github.com/glueco/cookey).
 
 ## Features
 

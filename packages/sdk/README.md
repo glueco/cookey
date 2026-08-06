@@ -1,6 +1,6 @@
 # @glueco/sdk
 
-Client SDK for the [Glueco Gateway](https://github.com/glueco/gateway). Provides PoP (Proof-of-Possession) authentication via Ed25519 signatures for secure, keyless API access.
+Client SDK for the [Glueco Gateway](https://github.com/glueco/cookey). Provides PoP (Proof-of-Possession) authentication via Ed25519 signatures for secure, keyless API access.
 
 ## Installation
 

@@ -56,7 +56,7 @@ Before starting, you'll need:
 
 The fastest way to deploy is using Vercel's one-click deploy:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/glueco/gateway)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/glueco/cookey)
 
 This will:
 
@@ -72,7 +72,7 @@ After clicking, follow the prompts to add your database URLs and secrets.
 
 ### Step 1: Fork the Repository
 
-1. Go to [github.com/glueco/gateway](https://github.com/glueco/gateway)
+1. Go to [github.com/glueco/cookey](https://github.com/glueco/cookey)
 2. Click **"Fork"** in the top right
 3. This creates a copy in your GitHub account
 
@@ -430,7 +430,7 @@ Alternatively, if you're comfortable with Git, pull the latest changes to your l
 ## Support
 
 - **Documentation:** [docs/](./docs/)
-- **Issues:** [GitHub Issues](https://github.com/glueco/gateway/issues)
+- **Issues:** [GitHub Issues](https://github.com/glueco/cookey/issues)
 - **Demo App:** Test your setup with the [demo app](https://demo-target-app.vercel.app)
 
 ---
