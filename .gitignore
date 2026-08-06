@@ -12,6 +12,7 @@ out/
 
 # Production
 build/
+dist/
 
 # Misc
 .DS_Store
@@ -43,5 +44,3 @@ prisma/migrations/
 .idea/
 .vscode/
 
-# SDK build output
-sdk/dist/
