@@ -15,49 +15,47 @@ datasource db {
 // ============================================
 
 model App {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   description String?
   homepage    String?
   status      AppStatus @default(ACTIVE)
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  credentials    AppCredential[]
-  permissions    ResourcePermission[]
-  limits         AppLimit[]
-  requestLogs    RequestLog[]
-  installSession InstallSession?
-  grant          Grant?
+  credentials AppCredential[]
+  permissions ResourcePermission[]
+  requestLogs RequestLog[]
+  grant       Grant?
 
   @@index([status])
 }
 
 enum AppStatus {
-  PENDING   // Awaiting approval
-  ACTIVE    // Approved and active
+  PENDING // Awaiting approval
+  ACTIVE // Approved and active
   SUSPENDED // Temporarily disabled
-  REVOKED   // Permanently disabled
+  REVOKED // Permanently disabled
 }
 
 model AppCredential {
-  id            String   @id @default(cuid())
-  appId         String
-  app           App      @relation(fields: [appId], references: [id], onDelete: Cascade)
-  
+  id    String @id @default(cuid())
+  appId String
+  app   App    @relation(fields: [appId], references: [id], onDelete: Cascade)
+
   // Ed25519 public key (base64 encoded)
-  publicKey     String
-  
+  publicKey String
+
   // Credential status for key rotation support
-  status        CredentialStatus @default(ACTIVE)
-  
+  status CredentialStatus @default(ACTIVE)
+
   // Metadata
-  label         String?  // e.g., "primary", "backup"
-  createdAt     DateTime @default(now())
-  revokedAt     DateTime?
-  
+  label     String? // e.g., "primary", "backup"
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
   @@index([appId, status])
   @@index([publicKey])
 }
@@ -72,54 +70,20 @@ enum CredentialStatus {
 // ============================================
 
 model ConnectCode {
-  id            String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Store only hash of the code for security
-  codeHash      String   @unique
-  
+  codeHash String @unique
+
   // TTL: codes expire after ~10 minutes
-  expiresAt     DateTime
-  
+  expiresAt DateTime
+
   // Single-use: mark as used after consumption
-  usedAt        DateTime?
-  
-  createdAt     DateTime @default(now())
-  
+  usedAt DateTime?
+
+  createdAt DateTime @default(now())
+
   @@index([expiresAt])
-}
-
-model InstallSession {
-  id            String   @id @default(cuid())
-  
-  // Linked app (created during prepare)
-  appId         String   @unique
-  app           App      @relation(fields: [appId], references: [id], onDelete: Cascade)
-  
-  // Session token for approval flow
-  sessionToken  String   @unique
-  
-  // Requested permissions (stored as JSON)
-  requestedPermissions Json
-  
-  // Redirect URL after approval
-  redirectUri   String
-  
-  // Flow state
-  status        InstallSessionStatus @default(PENDING)
-  expiresAt     DateTime
-  
-  createdAt     DateTime @default(now())
-  completedAt   DateTime?
-  
-  @@index([sessionToken])
-  @@index([status, expiresAt])
-}
-
-enum InstallSessionStatus {
-  PENDING
-  APPROVED
-  DENIED
-  EXPIRED
 }
 
 // ============================================
@@ -127,31 +91,31 @@ enum InstallSessionStatus {
 // ============================================
 
 model ResourceSecret {
-  id            String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Resource identifier (e.g., "llm:groq", "mail:resend")
   // Format: <resourceType>:<provider>
-  resourceId    String   @unique
-  
+  resourceId String @unique
+
   // Human-readable name
-  name          String
-  
+  name String
+
   // Resource type for categorization
-  resourceType  String   // "llm", "mail", "sms", "http", etc.
-  
+  resourceType String // "llm", "mail", "sms", "http", etc.
+
   // Encrypted secret (envelope encryption)
-  encryptedKey  String   // Base64 encoded encrypted data
-  keyIv         String   // Base64 encoded IV
-  
+  encryptedKey String // Base64 encoded encrypted data
+  keyIv        String // Base64 encoded IV
+
   // Provider-specific config (JSON)
-  config        Json?    // baseUrl, headers, etc.
-  
+  config Json? // baseUrl, headers, etc.
+
   // Status
-  status        ResourceStatus @default(ACTIVE)
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  status ResourceStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([resourceType])
   @@index([status])
 }
@@ -162,80 +126,80 @@ enum ResourceStatus {
 }
 
 model ResourcePermission {
-  id            String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  appId         String
-  app           App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+  appId String
+  app   App    @relation(fields: [appId], references: [id], onDelete: Cascade)
 
   // Owning grant (null only for legacy rows created before the grant model)
-  grantId       String?
-  grant         Grant?   @relation(fields: [grantId], references: [id], onDelete: SetNull)
+  grantId String?
+  grant   Grant?  @relation(fields: [grantId], references: [id], onDelete: SetNull)
 
   // Resource and action (e.g., "llm:groq", "chat.completions")
   // resourceId format: <resourceType>:<provider>
-  resourceId    String
-  action        String
-  
+  resourceId String
+  action     String
+
   // ============================================
   // ACCESS POLICY - Time Controls
   // ============================================
-  
+
   // When this permission becomes valid (null = immediately)
-  validFrom     DateTime?
-  
+  validFrom DateTime?
+
   // When this permission expires (null = never)
-  expiresAt     DateTime?
-  
+  expiresAt DateTime?
+
   // Time-of-day restrictions (JSON: { startHour: 9, endHour: 17, timezone: "UTC" })
   // null = allowed 24/7
-  timeWindow    Json?
-  
+  timeWindow Json?
+
   // ============================================
   // ACCESS POLICY - Scope Constraints  
   // ============================================
-  
+
   // Constraints specific to resource type (JSON schema)
   // LLM: { allowedModels: ["llama-3.1-8b-instant"], maxOutputTokens: 4096, allowStreaming: true }
   // Email: { allowedFromDomains: ["myapp.com"], maxRecipients: 10 }
-  constraints   Json?
-  
+  constraints Json?
+
   // ============================================
   // ACCESS POLICY - Rate Limiting
   // ============================================
-  
+
   // Inline rate limit (requests per window)
   // null = use app-level default
   rateLimitRequests   Int?
   rateLimitWindowSecs Int?
-  
+
   // Burst allowance (short-term spike tolerance)
   // e.g., allow 10 requests in 10 seconds even if sustained is 60/min
-  burstLimit          Int?
-  burstWindowSecs     Int?
-  
+  burstLimit      Int?
+  burstWindowSecs Int?
+
   // ============================================
   // ACCESS POLICY - Quotas
   // ============================================
-  
+
   // Daily quota (null = unlimited)
-  dailyQuota    Int?
-  
+  dailyQuota Int?
+
   // Monthly quota (null = unlimited)
-  monthlyQuota  Int?
-  
+  monthlyQuota Int?
+
   // Token budget for LLM resources (null = unlimited)
   dailyTokenBudget   Int?
   monthlyTokenBudget Int?
-  
+
   // Permission status
-  status        PermissionStatus @default(ACTIVE)
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  status PermissionStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Usage tracking relation
-  usageRecords  PermissionUsage[]
-  
+  usageRecords PermissionUsage[]
+
   @@unique([appId, resourceId, action])
   @@index([appId, status])
   @@index([grantId])
@@ -245,21 +209,21 @@ model ResourcePermission {
 
 // Track quota usage per permission per period
 model PermissionUsage {
-  id            String   @id @default(cuid())
-  
-  permissionId  String
-  permission    ResourcePermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-  
+  id String @id @default(cuid())
+
+  permissionId String
+  permission   ResourcePermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
   // Period tracking
-  periodType    UsagePeriodType
-  periodStart   DateTime  // Start of day/month in UTC
-  
+  periodType  UsagePeriodType
+  periodStart DateTime // Start of day/month in UTC
+
   // Usage counters
-  requestCount  Int       @default(0)
-  tokenCount    Int       @default(0)  // For LLM resources
-  
-  updatedAt     DateTime  @updatedAt
-  
+  requestCount Int @default(0)
+  tokenCount   Int @default(0) // For LLM resources
+
+  updatedAt DateTime @updatedAt
+
   @@unique([permissionId, periodType, periodStart])
   @@index([permissionId, periodType])
   @@index([periodStart])
@@ -273,48 +237,7 @@ enum UsagePeriodType {
 enum PermissionStatus {
   ACTIVE
   REVOKED
-  EXPIRED  // Auto-set when expiresAt passes
-}
-
-// ============================================
-// RATE LIMITS & BUDGETS (App-level defaults)
-// ============================================
-
-model AppLimit {
-  id            String   @id @default(cuid())
-  
-  appId         String
-  app           App      @relation(fields: [appId], references: [id], onDelete: Cascade)
-  
-  // Limit type
-  limitType     LimitType
-  
-  // Resource scope (null = global for app)
-  resourceId    String?
-  action        String?
-  
-  // Limit values
-  maxRequests   Int      // requests per window
-  windowSeconds Int      // window duration
-  
-  // For budgets: period tracking
-  periodType    PeriodType? // DAILY, MONTHLY
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  @@unique([appId, limitType, resourceId, action])
-  @@index([appId])
-}
-
-enum LimitType {
-  RATE_LIMIT  // Fixed window rate limit
-  BUDGET      // Quota over period (daily, monthly)
-}
-
-enum PeriodType {
-  DAILY
-  MONTHLY
+  EXPIRED // Auto-set when expiresAt passes
 }
 
 // ============================================
@@ -322,36 +245,36 @@ enum PeriodType {
 // ============================================
 
 model RequestLog {
-  id            String   @id @default(cuid())
-  
-  appId         String?
-  app           App?     @relation(fields: [appId], references: [id], onDelete: SetNull)
+  id String @id @default(cuid())
+
+  appId String?
+  app   App?    @relation(fields: [appId], references: [id], onDelete: SetNull)
 
   // Owning grant + connector that served the request (post-grant-migration rows)
-  grantId       String?
-  connectorId   String?
+  grantId     String?
+  connectorId String?
 
   // Request details
-  resourceId    String
-  action        String
-  endpoint      String
-  method        String
-  
+  resourceId String
+  action     String
+  endpoint   String
+  method     String
+
   // Decision
-  decision      RequestDecision
+  decision       RequestDecision
   decisionReason String?
-  
+
   // Performance
-  latencyMs     Int?
-  
+  latencyMs Int?
+
   // Resource-specific metadata (e.g., tokens used)
-  metadata      Json?    // { inputTokens: 100, outputTokens: 50 }
+  metadata Json? // { inputTokens: 100, outputTokens: 50 }
 
   // Estimated cost in USD (computed from connector pricing when available)
-  costEstimate  Float?
+  costEstimate Float?
 
   // Timing
-  timestamp     DateTime @default(now())
+  timestamp DateTime @default(now())
 
   @@index([appId, timestamp])
   @@index([grantId, timestamp])
@@ -374,41 +297,41 @@ enum RequestDecision {
 // ============================================
 
 model Grant {
-  id            String      @id @default(cuid())
+  id String @id @default(cuid())
 
   // 1:1 with App — App remains the identity anchor for PoP credentials
-  appId         String      @unique
-  app           App         @relation(fields: [appId], references: [id], onDelete: Cascade)
+  appId String @unique
+  app   App    @relation(fields: [appId], references: [id], onDelete: Cascade)
 
   // The FROZEN grant JSON exactly as submitted by the app author
-  document      Json
+  document Json
 
   // Owner's approval decisions (wildcard bindings, overrides)
-  decisions     Json?
+  decisions Json?
 
-  status        GrantStatus @default(PENDING)
-  authType      GrantAuth
-  runtime       String      // "server" | "serverless" | "cli" | "browser"
-  sourceUrl     String?     // well-known URL if discovered that way
+  status    GrantStatus @default(PENDING)
+  authType  GrantAuth
+  runtime   String // "server" | "serverless" | "cli" | "browser"
+  sourceUrl String? // well-known URL if discovered that way
 
-  expiresAt     DateTime?
+  expiresAt             DateTime?
   renewalPeriodDays     Int?
   currentPeriodEnd      DateTime?
   inactivitySuspendDays Int?
 
-  allowBrowser  Boolean     @default(false)
-  egressIps     String?     // newline/comma list: exact IPs, wildcards, CIDR
+  allowBrowser Boolean @default(false)
+  egressIps    String? // newline/comma list: exact IPs, wildcards, CIDR
 
-  lastUsedAt    DateTime?
-  lastUsedIp    String?
-  approvedAt    DateTime?
+  lastUsedAt DateTime?
+  lastUsedIp String?
+  approvedAt DateTime?
 
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  tokens        GrantToken[]
-  claimCodes    ClaimCode[]
-  permissions   ResourcePermission[]
+  tokens      GrantToken[]
+  claimCodes  ClaimCode[]
+  permissions ResourcePermission[]
 
   @@index([status, expiresAt])
   @@index([status, currentPeriodEnd])
@@ -431,36 +354,42 @@ enum GrantAuth {
 }
 
 model GrantToken {
-  id            String    @id @default(cuid())
+  id String @id @default(cuid())
 
-  grantId       String
-  grant         Grant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  grantId String
+  grant   Grant  @relation(fields: [grantId], references: [id], onDelete: Cascade)
 
   // SHA-256 hex of the full token; the token itself is never stored
-  tokenHash     String    @unique
+  tokenHash String @unique
 
   // First 12 chars ("ck_a1B2c3d4e") — plaintext, for UI identification only
   displayPrefix String
 
-  expiresAt     DateTime
-  revokedAt     DateTime?
+  expiresAt DateTime
+  revokedAt DateTime?
 
   // Gates the "still displayable" copy-paste window
-  firstUsedAt   DateTime?
-  lastUsedAt    DateTime?
-  lastUsedIp    String?
+  firstUsedAt DateTime?
+  lastUsedAt  DateTime?
+  lastUsedIp  String?
 
-  createdAt     DateTime  @default(now())
+  // Vault-encrypted copy of the token, kept ONLY until first data-plane use
+  // so the copy-paste window (Part 8 item 5) and claim exchange can show it.
+  // Cleared on firstUsedAt. Never stored in plaintext.
+  encryptedToken String?
+  tokenIv        String?
+
+  createdAt DateTime @default(now())
 
   @@index([grantId])
 }
 
 model ClaimCode {
-  id        String    @id @default(cuid())
+  id String @id @default(cuid())
 
-  codeHash  String    @unique
-  grantId   String
-  grant     Grant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  codeHash String @unique
+  grantId  String
+  grant    Grant  @relation(fields: [grantId], references: [id], onDelete: Cascade)
 
   expiresAt DateTime
   usedAt    DateTime?
@@ -483,7 +412,7 @@ model PopNonce {
 
 // Fixed-window rate limiting
 model RateCounter {
-  key         String   // e.g. "rl:{grantId}:{resourceId}:{action}"
+  key         String // e.g. "rl:{grantId}:{resourceId}:{action}"
   windowStart DateTime // floored to window
   count       Int      @default(0)
 
@@ -505,8 +434,8 @@ model GrantTemplate {
 
 model Notification {
   id        String    @id @default(cuid())
-  type      String    // "renewal_due" | "inactivity_suspend" | "claim_reuse" |
-                      // "digest" | "connector_update" | "anomaly"
+  type      String // "renewal_due" | "inactivity_suspend" | "claim_reuse" |
+  // "digest" | "connector_update" | "anomaly"
   title     String
   body      String
   payload   Json?

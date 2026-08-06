@@ -99,6 +99,8 @@ async function recordTokenUse(
           firstUsedAt: row.firstUsedAt ?? now,
           lastUsedAt: now,
           ...(clientIp && { lastUsedIp: clientIp }),
+          // First use closes the copy-paste window: drop the encrypted copy
+          ...(!row.firstUsedAt && { encryptedToken: null, tokenIv: null }),
         },
       }),
       prisma.grant.update({

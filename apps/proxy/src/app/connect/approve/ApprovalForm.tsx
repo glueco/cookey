@@ -1,330 +1,516 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import {
+  RequestReviewCard,
+  describeResource,
+  type GrantDocumentShape,
+} from "@/components/document/GrantDocumentReview";
+import { TokenSuccessScreen } from "./TokenSuccessScreen";
 
-interface RequestedPermission {
+// ============================================
+// GRANT APPROVAL FORM (9.3, phase-1 scope)
+// Wildcard binding, auth warning matrix, duration/renewal, budgets,
+// hardening accordion, approve/deny. Templates + spend projection are
+// Phase 4.
+// ============================================
+
+export interface AvailableResource {
   resourceId: string;
-  actions: string[];
+  name: string;
+  resourceType: string;
 }
 
-interface RateLimitConfig {
-  maxRequests: number;
-  windowSeconds: number;
+interface Props {
+  grantId: string;
+  document: GrantDocumentShape;
+  availableResources: AvailableResource[];
+  /** ms value parsed from document.duration (null = forever) */
+  requestedDurationMs: number | null;
+  /** days parsed from document.renewal?.period */
+  requestedRenewalDays: number | null;
 }
 
-interface PermissionWithLimits extends RequestedPermission {
-  rateLimit: RateLimitConfig;
-}
-
-// Preset rate limit options
-const RATE_LIMIT_PRESETS: { label: string; value: RateLimitConfig }[] = [
-  { label: "5 per minute", value: { maxRequests: 5, windowSeconds: 60 } },
-  { label: "10 per minute", value: { maxRequests: 10, windowSeconds: 60 } },
-  { label: "30 per minute", value: { maxRequests: 30, windowSeconds: 60 } },
-  { label: "60 per minute", value: { maxRequests: 60, windowSeconds: 60 } },
-  { label: "100 per hour", value: { maxRequests: 100, windowSeconds: 3600 } },
-  { label: "500 per hour", value: { maxRequests: 500, windowSeconds: 3600 } },
-  { label: "1000 per day", value: { maxRequests: 1000, windowSeconds: 86400 } },
-  { label: "Custom", value: { maxRequests: 0, windowSeconds: 0 } },
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DURATION_OPTIONS: Array<{ label: string; ms: number | null }> = [
+  { label: "24 hours", ms: DAY_MS },
+  { label: "7 days", ms: 7 * DAY_MS },
+  { label: "30 days", ms: 30 * DAY_MS },
+  { label: "90 days", ms: 90 * DAY_MS },
+  { label: "1 year", ms: 365 * DAY_MS },
+  { label: "Forever", ms: null },
 ];
 
-interface ApprovalFormProps {
-  sessionToken: string;
-  requestedPermissions: RequestedPermission[];
-}
-
 export default function ApprovalForm({
-  sessionToken,
-  requestedPermissions,
-}: ApprovalFormProps) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  grantId,
+  document: doc,
+  availableResources,
+  requestedDurationMs,
+  requestedRenewalDays,
+}: Props) {
+  const popAvailable = !!doc.publicKey;
 
-  // Constraints form state
-  const [maxTokens, setMaxTokens] = useState(4096);
-  const [allowStreaming, setAllowStreaming] = useState(true);
+  const [auth, setAuth] = useState<"bearer" | "pop">(
+    doc.auth === "pop" && popAvailable ? "pop" : "bearer",
+  );
+  const [durationMs, setDurationMs] = useState<number | null>(
+    requestedDurationMs ?? 30 * DAY_MS,
+  );
+  const [renewable, setRenewable] = useState(requestedRenewalDays !== null);
+  const [renewalDays, setRenewalDays] = useState(requestedRenewalDays ?? 30);
+  const [budget, setBudget] = useState({
+    dailyRequests: doc.budget?.dailyRequests?.toString() ?? "",
+    dailyTokens: doc.budget?.dailyTokens?.toString() ?? "",
+    monthlyRequests: doc.budget?.monthlyRequests?.toString() ?? "",
+    monthlyTokens: doc.budget?.monthlyTokens?.toString() ?? "",
+  });
+  const [loosenedAck, setLoosenedAck] = useState(false);
+  const [egressIps, setEgressIps] = useState("");
+  const [allowBrowser, setAllowBrowser] = useState(doc.runtime === "browser");
+  const [inactivityDays, setInactivityDays] = useState("14");
 
-  // Per-permission rate limits
-  const [permissionLimits, setPermissionLimits] = useState<
-    Record<string, RateLimitConfig>
-  >(() => {
-    // Initialize with default rate limits
-    const initial: Record<string, RateLimitConfig> = {};
-    requestedPermissions.forEach((perm) => {
-      initial[perm.resourceId] = { maxRequests: 60, windowSeconds: 60 }; // Default: 60/min
-    });
+  // Wildcard bindings: request index → selected resource ids
+  const wildcardRequests = doc.requests
+    .map((request, index) => ({ request, index }))
+    .filter(({ request }) => request.resource.endsWith(":*"));
+
+  const [bindings, setBindings] = useState<Record<string, string[]>>(() => {
+    const initial: Record<string, string[]> = {};
+    for (const { request, index } of wildcardRequests) {
+      const type = request.resource.slice(0, -2);
+      initial[String(index)] = availableResources
+        .filter((r) => r.resourceType === type)
+        .map((r) => r.resourceId);
+    }
     return initial;
   });
 
-  // Track if custom mode is active per permission
-  const [customMode, setCustomMode] = useState<Record<string, boolean>>({});
+  const [submitting, setSubmitting] = useState<"approve" | "deny" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [finished, setFinished] = useState<"approved" | "denied" | null>(null);
 
-  const handlePresetChange = (resourceId: string, presetIndex: number) => {
-    const preset = RATE_LIMIT_PRESETS[presetIndex];
-    if (preset.label === "Custom") {
-      setCustomMode((prev) => ({ ...prev, [resourceId]: true }));
-    } else {
-      setCustomMode((prev) => ({ ...prev, [resourceId]: false }));
-      setPermissionLimits((prev) => ({
-        ...prev,
-        [resourceId]: preset.value,
-      }));
-    }
-  };
+  // ---- Warning matrix (5.3) ----
+  const bearerWarning = useMemo(() => {
+    if (auth !== "bearer") return null;
+    if (renewable && renewalDays <= 31) return "renewable" as const;
+    if (durationMs !== null && durationMs <= 7 * DAY_MS) return null;
+    return "long-lived" as const;
+  }, [auth, durationMs, renewable, renewalDays]);
 
-  const handleCustomLimitChange = (
-    resourceId: string,
-    field: "maxRequests" | "windowSeconds",
-    value: number,
-  ) => {
-    setPermissionLimits((prev) => ({
-      ...prev,
-      [resourceId]: {
-        ...prev[resourceId],
-        [field]: value,
-      },
-    }));
-  };
+  // ---- Loosening detection: budgets above what the app asked for ----
+  const loosened = useMemo(() => {
+    const fields: Array<[keyof typeof budget, number | undefined]> = [
+      ["dailyRequests", doc.budget?.dailyRequests],
+      ["dailyTokens", doc.budget?.dailyTokens],
+      ["monthlyRequests", doc.budget?.monthlyRequests],
+      ["monthlyTokens", doc.budget?.monthlyTokens],
+    ];
+    return fields.some(([key, requested]) => {
+      if (requested === undefined) return false;
+      const value = budget[key].trim();
+      if (value === "") return true; // removing a requested cap = loosening
+      return parseInt(value, 10) > requested;
+    });
+  }, [budget, doc.budget]);
 
-  const formatRateLimit = (limit: RateLimitConfig): string => {
-    if (limit.windowSeconds === 60) return `${limit.maxRequests}/min`;
-    if (limit.windowSeconds === 3600) return `${limit.maxRequests}/hour`;
-    if (limit.windowSeconds === 86400) return `${limit.maxRequests}/day`;
-    return `${limit.maxRequests} per ${limit.windowSeconds}s`;
-  };
+  const bindingIncomplete = wildcardRequests.some(
+    ({ index }) => (bindings[String(index)] ?? []).length === 0,
+  );
 
-  const handleApprove = async () => {
-    setLoading(true);
+  const expiryDate = durationMs
+    ? new Date(Date.now() + durationMs).toLocaleDateString()
+    : "never";
+
+  async function submit(decision: "approve" | "deny") {
+    setSubmitting(decision);
     setError(null);
-
     try {
-      // Default expiry: 1 hour from now
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-      
-      // Build permissions with rate limits and expiry policy
-      const permissionsWithLimits = requestedPermissions.map((perm) => ({
-        ...perm,
-        rateLimit: permissionLimits[perm.resourceId],
-        policy: {
-          expiresAt,
-        },
-      }));
+      const budgetNumbers = Object.fromEntries(
+        Object.entries(budget)
+          .filter(([, v]) => v.trim() !== "")
+          .map(([k, v]) => [k, parseInt(v, 10)]),
+      );
 
-      const res = await fetch("/api/connect/approve", {
+      const response = await fetch("/api/connect/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionToken,
-          decision: "approve",
-          grantedPermissions: permissionsWithLimits,
-          constraints: {
-            maxOutputTokens: maxTokens,
-            allowStreaming,
-          },
+          sessionToken: grantId,
+          decision,
+          ...(decision === "approve" && {
+            decisions: {
+              bindings,
+              auth,
+              durationMs,
+              renewal: renewable ? { periodDays: renewalDays } : null,
+              ...(Object.keys(budgetNumbers).length > 0 && {
+                budget: budgetNumbers,
+              }),
+              ...(egressIps.trim() && { egressIps: egressIps.trim() }),
+              allowBrowser,
+              inactivitySuspendDays: parseInt(inactivityDays || "0", 10),
+              ...(loosened && { loosenedAcknowledged: true }),
+            },
+          }),
         }),
       });
 
-      const data = await res.json();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Request failed");
 
-      if (!res.ok) {
-        throw new Error(data.error || "Approval failed");
+      if (decision === "deny") {
+        setFinished("denied");
+        return;
       }
 
-      // Redirect back with approval status
-      window.location.href = data.redirectUri;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setLoading(false);
-    }
-  };
-
-  const handleDeny = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/connect/approve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionToken,
-          decision: "deny",
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Denial failed");
+      if (data.redirectUri) {
+        window.location.href = data.redirectUri;
+        return;
       }
-
-      // Redirect back with denial status
-      window.location.href = data.redirectUri;
+      if (data.token) {
+        setIssuedToken(data.token);
+        return;
+      }
+      setFinished("approved");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setLoading(false);
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setSubmitting(null);
     }
-  };
+  }
 
-  // Helper to get current preset index
-  const getCurrentPresetIndex = (resourceId: string): number => {
-    if (customMode[resourceId]) return RATE_LIMIT_PRESETS.length - 1; // Custom
-    const limit = permissionLimits[resourceId];
-    const idx = RATE_LIMIT_PRESETS.findIndex(
-      (p) =>
-        p.value.maxRequests === limit.maxRequests &&
-        p.value.windowSeconds === limit.windowSeconds,
+  if (issuedToken) {
+    return (
+      <TokenSuccessScreen
+        token={issuedToken}
+        appName={doc.app.name}
+        boundResources={[
+          ...new Set(
+            doc.requests.flatMap((request, index) =>
+              request.resource.endsWith(":*")
+                ? (bindings[String(index)] ?? [])
+                : [request.resource],
+            ),
+          ),
+        ]}
+      />
     );
-    return idx >= 0 ? idx : RATE_LIMIT_PRESETS.length - 1; // Default to Custom if not found
-  };
+  }
+
+  if (finished) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-lg font-semibold text-slate-900 dark:text-white">
+          {finished === "approved" ? "Access granted" : "Request denied"}
+        </p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+          {finished === "approved"
+            ? `${doc.app.name} can now connect with its signing keys.`
+            : `${doc.app.name} was told the connection was declined.`}
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      {/* Per-Permission Rate Limits */}
-      <div className="mb-6 p-4 border rounded-lg">
-        <h3 className="font-medium mb-3">Rate Limits per Resource</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          Configure how many requests this app can make to each resource.
-        </p>
-
-        <div className="space-y-4">
-          {requestedPermissions.map((perm) => (
-            <div
-              key={perm.resourceId}
-              className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-sm">{perm.resourceId}</span>
-                <span className="text-xs text-gray-500">
-                  {formatRateLimit(permissionLimits[perm.resourceId])}
-                </span>
-              </div>
-
-              <select
-                value={getCurrentPresetIndex(perm.resourceId)}
-                onChange={(e) =>
-                  handlePresetChange(perm.resourceId, parseInt(e.target.value))
-                }
-                className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 text-sm"
-              >
-                {RATE_LIMIT_PRESETS.map((preset, idx) => (
-                  <option key={idx} value={idx}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-
-              {/* Custom fields */}
-              {customMode[perm.resourceId] && (
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">
-                      Max Requests
-                    </label>
-                    <input
-                      type="number"
-                      value={permissionLimits[perm.resourceId].maxRequests}
-                      onChange={(e) =>
-                        handleCustomLimitChange(
-                          perm.resourceId,
-                          "maxRequests",
-                          parseInt(e.target.value) || 1,
-                        )
-                      }
-                      min={1}
-                      className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">
-                      Window (seconds)
-                    </label>
-                    <input
-                      type="number"
-                      value={permissionLimits[perm.resourceId].windowSeconds}
-                      onChange={(e) =>
-                        handleCustomLimitChange(
-                          perm.resourceId,
-                          "windowSeconds",
-                          parseInt(e.target.value) || 60,
-                        )
-                      }
-                      min={1}
-                      className="w-full px-2 py-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600"
-                    />
-                  </div>
+    <div className="space-y-6">
+      {/* Requests with reasons */}
+      <section>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
+          Requested access
+        </h3>
+        <div className="space-y-3">
+          {doc.requests.map((request, index) => (
+            <div key={index}>
+              <RequestReviewCard request={request} />
+              {request.resource.endsWith(":*") && (
+                <div className="mt-2 ml-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                  <p className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Bind “{describeResource(request.resource)}” to:
+                  </p>
+                  {availableResources.filter(
+                    (r) => r.resourceType === request.resource.slice(0, -2),
+                  ).length === 0 ? (
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      No configured providers of this type — add credentials
+                      first.
+                    </p>
+                  ) : (
+                    availableResources
+                      .filter(
+                        (r) =>
+                          r.resourceType === request.resource.slice(0, -2),
+                      )
+                      .map((resource) => (
+                        <label
+                          key={resource.resourceId}
+                          className="flex items-center gap-2 text-sm py-0.5 text-slate-700 dark:text-slate-200"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={(
+                              bindings[String(index)] ?? []
+                            ).includes(resource.resourceId)}
+                            onChange={(e) => {
+                              setBindings((prev) => {
+                                const current = prev[String(index)] ?? [];
+                                return {
+                                  ...prev,
+                                  [String(index)]: e.target.checked
+                                    ? [...current, resource.resourceId]
+                                    : current.filter(
+                                        (id) => id !== resource.resourceId,
+                                      ),
+                                };
+                              });
+                            }}
+                          />
+                          <span className="font-mono">
+                            {resource.resourceId}
+                          </span>
+                          <span className="text-slate-400">
+                            ({resource.name})
+                          </span>
+                        </label>
+                      ))
+                  )}
                 </div>
               )}
-
-              <div className="mt-1 text-xs text-gray-500">
-                Actions: {perm.actions.join(", ")}
-              </div>
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* Constraints configuration */}
-      <div className="mb-6 p-4 border rounded-lg">
-        <h3 className="font-medium mb-3">Output Constraints</h3>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Max Output Tokens
-            </label>
+      {/* Auth */}
+      <section>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
+          Authentication
+        </h3>
+        <div className="flex gap-4 flex-wrap">
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
             <input
-              type="number"
-              value={maxTokens}
-              onChange={(e) => setMaxTokens(parseInt(e.target.value) || 4096)}
-              min={1}
-              max={32768}
-              className="w-full px-3 py-2 border rounded-md dark:bg-gray-800 dark:border-gray-700"
+              type="radio"
+              checked={auth === "bearer"}
+              onChange={() => setAuth("bearer")}
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Maximum tokens per response (1-32768)
-            </p>
+            Static token (no code changes in the app)
+          </label>
+          <label
+            className={`flex items-center gap-2 text-sm ${popAvailable ? "text-slate-700 dark:text-slate-200" : "text-slate-400 dark:text-slate-600"}`}
+          >
+            <input
+              type="radio"
+              checked={auth === "pop"}
+              disabled={!popAvailable}
+              onChange={() => setAuth("pop")}
+            />
+            PoP signing keys
+            {!popAvailable && (
+              <span className="text-xs">
+                (unavailable — the app sent no public key)
+              </span>
+            )}
+          </label>
+        </div>
+        {bearerWarning === "long-lived" && (
+          <div className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+            A leaked token is silently usable until {expiryDate}. For
+            long-lived access, PoP keeps the credential out of every request
+            and log. Continue with a static token?
           </div>
+        )}
+        {bearerWarning === "renewable" && (
+          <div className="mt-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300">
+            Renewable grant: the token only lives until the current period
+            ends, and lapses unless you renew.
+          </div>
+        )}
+      </section>
 
-          <div className="flex items-center">
+      {/* Duration & renewal */}
+      <section>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
+          Duration
+        </h3>
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            className="input text-sm"
+            value={String(durationMs)}
+            onChange={(e) =>
+              setDurationMs(
+                e.target.value === "null" ? null : parseInt(e.target.value, 10),
+              )
+            }
+          >
+            {DURATION_OPTIONS.map((option) => (
+              <option key={option.label} value={String(option.ms)}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
             <input
               type="checkbox"
-              id="allowStreaming"
-              checked={allowStreaming}
-              onChange={(e) => setAllowStreaming(e.target.checked)}
-              className="w-4 h-4 text-primary-600 rounded"
+              checked={renewable}
+              onChange={(e) => setRenewable(e.target.checked)}
             />
-            <label htmlFor="allowStreaming" className="ml-2 text-sm">
-              Allow streaming responses
-            </label>
-          </div>
+            Renewable every
+          </label>
+          <input
+            type="number"
+            min={1}
+            disabled={!renewable}
+            className="input text-sm w-20"
+            value={renewalDays}
+            onChange={(e) =>
+              setRenewalDays(parseInt(e.target.value || "30", 10))
+            }
+          />
+          <span className="text-sm text-slate-500">days</span>
         </div>
-      </div>
+      </section>
+
+      {/* Budgets */}
+      <section>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
+          Budgets{" "}
+          <span className="font-normal text-xs text-slate-500">
+            (prefilled from the request — tighten freely)
+          </span>
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {(
+            [
+              ["dailyRequests", "Daily requests"],
+              ["dailyTokens", "Daily tokens"],
+              ["monthlyRequests", "Monthly requests"],
+              ["monthlyTokens", "Monthly tokens"],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="block">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {label}
+              </span>
+              <input
+                type="number"
+                min={1}
+                placeholder="unlimited"
+                className="input text-sm w-full mt-1"
+                value={budget[key]}
+                onChange={(e) =>
+                  setBudget((prev) => ({ ...prev, [key]: e.target.value }))
+                }
+              />
+            </label>
+          ))}
+        </div>
+        {!budget.dailyRequests &&
+          !budget.dailyTokens &&
+          !budget.monthlyRequests &&
+          !budget.monthlyTokens && (
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              No budget caps set — this grant will be unlimited. Consider a
+              daily cap.
+            </p>
+          )}
+        {loosened && (
+          <label className="mt-2 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={loosenedAck}
+              onChange={(e) => setLoosenedAck(e.target.checked)}
+            />
+            These limits exceed what the app asked for — I want that.
+          </label>
+        )}
+      </section>
+
+      {/* Hardening */}
+      <details
+        open={doc.runtime === "server"}
+        className="rounded-lg border border-slate-200 dark:border-slate-700 p-4"
+      >
+        <summary className="text-sm font-semibold text-slate-900 dark:text-white cursor-pointer select-none">
+          Hardening
+        </summary>
+        <div className="mt-3 space-y-3">
+          <label className="block">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Egress IP allowlist{" "}
+              {doc.runtime === "server" &&
+                "(recommended — this app runs on a server with stable IPs)"}
+            </span>
+            <textarea
+              rows={2}
+              placeholder={"203.0.113.7\n198.51.100.0/24"}
+              className="input text-sm w-full mt-1 font-mono"
+              value={egressIps}
+              onChange={(e) => setEgressIps(e.target.value)}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={allowBrowser}
+              onChange={(e) => setAllowBrowser(e.target.checked)}
+            />
+            Allow browser-originated requests
+          </label>
+          {allowBrowser && (
+            <p className="text-xs text-red-600 dark:text-red-400">
+              Anyone who can run JavaScript against this grant's token can use
+              it from any website. Only enable for browser-runtime apps you
+              trust.
+            </p>
+          )}
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            Suspend after
+            <input
+              type="number"
+              min={0}
+              className="input text-sm w-20"
+              value={inactivityDays}
+              onChange={(e) => setInactivityDays(e.target.value)}
+            />
+            days of inactivity (0 = never)
+          </label>
+        </div>
+      </details>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-lg text-sm">
+        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
 
       <div className="flex gap-3">
         <button
-          onClick={handleDeny}
-          disabled={loading}
-          className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
+          className="btn-primary flex-1"
+          disabled={
+            submitting !== null ||
+            bindingIncomplete ||
+            (loosened && !loosenedAck)
+          }
+          onClick={() => submit("approve")}
         >
-          Deny
+          {submitting === "approve" ? "Approving…" : "Approve"}
         </button>
         <button
-          onClick={handleApprove}
-          disabled={loading}
-          className="flex-1 px-4 py-3 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors"
+          className="btn-secondary flex-1"
+          disabled={submitting !== null}
+          onClick={() => submit("deny")}
         >
-          {loading ? "Processing..." : "Approve"}
+          {submitting === "deny" ? "Denying…" : "Deny"}
         </button>
       </div>
+      {bindingIncomplete && (
+        <p className="text-xs text-red-600 dark:text-red-400">
+          Every “any provider” request must be bound to at least one
+          configured provider.
+        </p>
+      )}
     </div>
   );
 }

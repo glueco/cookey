@@ -1,65 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { approveInstallSession, denyInstallSession } from "@/server/pairing";
+import {
+  approveGrant,
+  denyGrant,
+  GrantServiceError,
+} from "@/server/grants/service";
+import { GrantDecisionsSchema } from "@/server/grants/schema";
 
 // ============================================
 // POST /api/connect/approve
-// Complete the install session (approve or deny)
+// Complete a pending grant (approve with decisions, or deny).
+// Keyed by the grant id (the approval-link secret), matching the old
+// session-token trust model.
 // ============================================
 
-const TimeWindowSchema = z.object({
-  startHour: z.number().int().min(0).max(23),
-  endHour: z.number().int().min(0).max(23),
-  timezone: z.string(),
-  allowedDays: z.array(z.number().int().min(0).max(6)).optional(),
-});
-
-const RateLimitSchema = z.object({
-  maxRequests: z.number().int().positive(),
-  windowSeconds: z.number().int().positive(),
-});
-
-const QuotaSchema = z.object({
-  daily: z.number().int().positive().optional(),
-  monthly: z.number().int().positive().optional(),
-});
-
-const TokenBudgetSchema = z.object({
-  daily: z.number().int().positive().optional(),
-  monthly: z.number().int().positive().optional(),
-});
-
-const ConstraintsSchema = z
-  .object({
-    allowedModels: z.array(z.string()).optional(),
-    maxOutputTokens: z.number().int().positive().optional(),
-    maxInputTokens: z.number().int().positive().optional(),
-    allowStreaming: z.boolean().optional(),
-  })
-  .passthrough(); // Allow additional fields
-
-const AccessPolicySchema = z.object({
-  validFrom: z.string().datetime().nullable().optional(),
-  expiresAt: z.string().datetime().nullable().optional(),
-  timeWindow: TimeWindowSchema.nullable().optional(),
-  rateLimit: RateLimitSchema.optional(),
-  quota: QuotaSchema.optional(),
-  tokenBudget: TokenBudgetSchema.optional(),
-  constraints: ConstraintsSchema.optional(),
-});
-
 const ApproveRequestSchema = z.object({
-  sessionToken: z.string().min(1),
+  sessionToken: z.string().min(1), // grant id
   decision: z.enum(["approve", "deny"]),
-  grantedPermissions: z
-    .array(
-      z.object({
-        resourceId: z.string().min(1), // Format: resourceType:provider
-        actions: z.array(z.string().min(1)),
-        policy: AccessPolicySchema.optional(), // Full access policy
-      }),
-    )
-    .optional(),
+  decisions: GrantDecisionsSchema.optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -88,44 +46,38 @@ export async function POST(request: NextRequest) {
 
   try {
     if (parsed.data.decision === "approve") {
-      if (
-        !parsed.data.grantedPermissions ||
-        parsed.data.grantedPermissions.length === 0
-      ) {
+      if (!parsed.data.decisions) {
         return NextResponse.json(
-          { error: "grantedPermissions required for approval" },
+          { error: "decisions required for approval" },
           { status: 400 },
         );
       }
 
-      const result = await approveInstallSession(
+      const result = await approveGrant(
         parsed.data.sessionToken,
-        parsed.data.grantedPermissions,
+        parsed.data.decisions,
       );
 
       return NextResponse.json({
         status: "approved",
-        appId: result.appId,
-        redirectUri: result.redirectUri,
+        appId: result.grant.appId,
+        grantId: result.grant.id,
+        // Exactly one of these is set for bearer grants:
+        // token → copy-paste screen; redirectUri → claim-code delivery
+        ...(result.token && { token: result.token }),
+        ...(result.redirectUrl && { redirectUri: result.redirectUrl }),
       });
     } else {
-      const result = await denyInstallSession(parsed.data.sessionToken);
-
-      return NextResponse.json({
-        status: "denied",
-        redirectUri: result.redirectUri,
-      });
+      await denyGrant(parsed.data.sessionToken);
+      return NextResponse.json({ status: "denied" });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-
-    if (message.includes("Invalid or expired session")) {
+    if (error instanceof GrantServiceError) {
       return NextResponse.json(
-        { error: "Invalid or expired session" },
-        { status: 400 },
+        { error: error.message },
+        { status: error.status },
       );
     }
-
     console.error("Approve error:", error);
     return NextResponse.json(
       { error: "Failed to process approval" },

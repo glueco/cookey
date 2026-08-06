@@ -4,7 +4,8 @@ import { CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
 // ============================================
 // GET /api/connect/status
-// Poll for install session status
+// Poll for grant approval status. Response shape unchanged from the
+// install-session era; the session token is now the grant id.
 // ============================================
 
 export async function GET(request: NextRequest) {
@@ -18,42 +19,32 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Find session by token
-    const session = await prisma.installSession.findUnique({
-      where: { sessionToken },
-      include: {
-        app: true,
-      },
+    const grant = await prisma.grant.findUnique({
+      where: { id: sessionToken },
     });
 
-    if (!session) {
+    if (!grant) {
       return NextResponse.json(
         { error: "Session not found" },
         { status: 404 }
       );
     }
 
-    // Check expiry for pending sessions
-    if (session.status === "PENDING" && session.expiresAt < new Date()) {
-      return NextResponse.json({
-        status: "expired",
-      });
-    }
-
-    // Return status based on session state
-    switch (session.status) {
+    switch (grant.status) {
       case "PENDING":
         return NextResponse.json({
           status: "pending",
         });
 
-      case "APPROVED":
+      case "ACTIVE": {
         const gatewayUrl = process.env.GATEWAY_URL;
         return NextResponse.json({
           status: "approved",
-          appId: session.appId,
+          appId: grant.appId,
+          grantId: grant.id,
           gatewayUrl,
         });
+      }
 
       case "DENIED":
         return NextResponse.json({
@@ -67,8 +58,9 @@ export async function GET(request: NextRequest) {
         });
 
       default:
+        // Suspended/revoked grants were approved once; report their state
         return NextResponse.json({
-          status: "unknown",
+          status: grant.status.toLowerCase(),
         });
     }
   } catch (error) {

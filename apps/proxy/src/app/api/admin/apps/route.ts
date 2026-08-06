@@ -42,7 +42,6 @@ export async function GET(request: NextRequest) {
           createdAt: true,
         },
       },
-      limits: true,
       _count: {
         select: { requestLogs: true },
       },
@@ -229,7 +228,6 @@ export async function PUT(request: NextRequest) {
           createdAt: true,
         },
       },
-      limits: true,
     },
   });
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { NotificationsBell } from "@/components/NotificationsBell";
 
 // Models are now fetched from /api/admin/models
 type ResourceModel = { id: string; name: string; description?: string };
@@ -149,23 +150,23 @@ export default function DashboardPage() {
   };
 
   const handleRemoveExpiredApps = async () => {
-    if (!confirm("This will permanently delete all apps with expired permissions. Continue?")) {
+    if (!confirm("Run the housekeeping sweep now? This expires past-due grants and permissions and prunes stale codes.")) {
       return;
     }
     setActionLoading("removeExpired");
     setActionsMenuOpen(false);
     try {
-      const res = await fetch("/api/admin/apps/remove-expired", { method: "POST" });
+      const res = await fetch("/api/admin/sweep", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to remove expired apps");
+      if (!res.ok) throw new Error(data.error || "Sweep failed");
       // Refresh apps list
       const appsRes = await fetch("/api/admin/apps");
       const appsData = await appsRes.json();
       setApps(appsData.apps || []);
       setError(null);
-      alert(`Removed ${data.removedCount} expired app(s)`);
+      alert(`Sweep complete: ${data.results.grantsExpired ?? 0} grant(s) and ${data.results.permissionsExpired ?? 0} permission(s) expired`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove expired apps");
+      setError(err instanceof Error ? err.message : "Sweep failed");
     } finally {
       setActionLoading(null);
     }
@@ -282,6 +283,8 @@ export default function DashboardPage() {
                   </>
                 )}
               </div>
+              {/* Notifications */}
+              <NotificationsBell />
               {/* Logout Button */}
               <button
                 onClick={handleLogout}

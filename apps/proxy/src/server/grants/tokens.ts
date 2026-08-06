@@ -1,5 +1,7 @@
 import { randomBytes, createHash } from "crypto";
 import { prisma } from "@/lib/db";
+import { encryptSecret, decryptSecret } from "@/lib/vault";
+import type { GrantToken } from "@prisma/client";
 
 // ============================================
 // GRANT TOKENS (static bearer credentials)
@@ -40,22 +42,46 @@ export function hashToken(token: string): string {
 
 /**
  * Mint and persist a bearer token for a grant.
- * Returns the plaintext token — the ONLY time it exists outside the caller.
+ * A vault-encrypted copy is kept until first data-plane use so the
+ * copy-paste window and claim exchange can surface it; after first use
+ * only the SHA-256 hash remains.
  */
 export async function mintGrantToken(
   grantId: string,
   expiresAt: Date,
 ): Promise<{ token: string; tokenId: string }> {
   const token = generateTokenString();
+  const encrypted = encryptSecret(token);
   const row = await prisma.grantToken.create({
     data: {
       grantId,
       tokenHash: hashToken(token),
       displayPrefix: token.slice(0, DISPLAY_PREFIX_LENGTH),
       expiresAt,
+      encryptedToken: encrypted.encryptedKey,
+      tokenIv: encrypted.keyIv,
     },
   });
   return { token, tokenId: row.id };
+}
+
+/**
+ * Decrypt the stored token copy while the copy-paste window is open.
+ * Returns null once the token has been used (copy cleared) or was revoked.
+ */
+export function getDisplayableToken(token: GrantToken): string | null {
+  if (
+    token.firstUsedAt ||
+    token.revokedAt ||
+    !token.encryptedToken ||
+    !token.tokenIv
+  ) {
+    return null;
+  }
+  return decryptSecret({
+    encryptedKey: token.encryptedToken,
+    keyIv: token.tokenIv,
+  });
 }
 
 /**

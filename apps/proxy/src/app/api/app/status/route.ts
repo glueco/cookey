@@ -31,6 +31,15 @@ export async function GET(request: NextRequest) {
     const app = await prisma.app.findUnique({
       where: { id: appId },
       include: {
+        grant: {
+          select: {
+            id: true,
+            status: true,
+            expiresAt: true,
+            currentPeriodEnd: true,
+            authType: true,
+          },
+        },
         permissions: {
           where: { 
             status: "ACTIVE" as PermissionStatus,
@@ -126,6 +135,17 @@ export async function GET(request: NextRequest) {
       name: app.name,
       status: app.status,
       permissions: availableResources,
+      // Grant state (additive — new in the grant migration)
+      grant: app.grant
+        ? {
+            grantId: app.grant.id,
+            status: app.grant.status,
+            expiresAt: app.grant.expiresAt?.toISOString() ?? null,
+            currentPeriodEnd:
+              app.grant.currentPeriodEnd?.toISOString() ?? null,
+            auth: app.grant.authType === "POP" ? "pop" : "bearer",
+          }
+        : null,
     }, { headers: CORS_HEADERS });
 
   } catch (error) {
