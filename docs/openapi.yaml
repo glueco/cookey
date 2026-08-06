@@ -1,0 +1,433 @@
+openapi: 3.1.0
+info:
+  title: Cookey Gateway API
+  version: 2.0.0
+  description: >
+    Self-hosted personal API gateway. App-facing routes authenticate with a
+    grant bearer token (ck_…) or PoP headers; admin routes with the owner
+    session cookie or ADMIN_SECRET bearer; cron routes with CRON_SECRET.
+servers:
+  - url: "{gatewayUrl}"
+    variables:
+      gatewayUrl:
+        default: https://your-gateway.example.com
+
+components:
+  securitySchemes:
+    grantToken:
+      type: http
+      scheme: bearer
+      description: Grant bearer token (ck_…)
+    popHeaders:
+      type: apiKey
+      in: header
+      name: x-sig
+      description: PoP v1 — x-pop-v, x-app-id, x-ts, x-nonce, x-sig (see docs/POP_PROTOCOL.md)
+    adminSecret:
+      type: http
+      scheme: bearer
+      description: ADMIN_SECRET (or the admin session cookie)
+    cronSecret:
+      type: http
+      scheme: bearer
+      description: CRON_SECRET
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+    GrantDocument:
+      type: object
+      description: See docs/GRANT_SPEC.md
+      required: [specVersion, app, runtime, auth, requests, duration]
+      properties:
+        specVersion: { type: string, enum: ["1"] }
+        app:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string }
+            description: { type: string }
+            homepage: { type: string, format: uri }
+            iconUrl: { type: string, format: uri }
+        runtime: { type: string, enum: [server, serverless, cli, browser] }
+        auth: { type: string, enum: [bearer, pop] }
+        publicKey: { type: [string, "null"] }
+        requests:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [resource, actions, reason]
+            properties:
+              resource: { type: string, pattern: "^[a-z]+:([a-z0-9-]+|\\*)$" }
+              actions: { type: array, items: { type: string } }
+              reason: { type: string, maxLength: 300 }
+              constraints: { type: object }
+        duration: { type: string }
+        renewal:
+          type: object
+          properties: { period: { type: string } }
+        budget:
+          type: object
+          properties:
+            dailyRequests: { type: integer }
+            monthlyRequests: { type: integer }
+            dailyTokens: { type: integer }
+            monthlyTokens: { type: integer }
+        redirectUri: { type: string, format: uri }
+    ConnectorDocument:
+      type: object
+      description: See docs/CONNECTOR_SPEC.md
+    GrantResolution:
+      type: object
+      properties:
+        grantId: { type: string }
+        status: { type: string }
+        expiresAt: { type: [string, "null"], format: date-time }
+        currentPeriodEnd: { type: [string, "null"], format: date-time }
+        auth: { type: string, enum: [bearer, pop] }
+        resources:
+          type: array
+          items:
+            type: object
+            properties:
+              resourceId: { type: string }
+              actions: { type: array, items: { type: string } }
+              models: { type: array, items: { type: string } }
+              constraints: { type: object }
+              remaining:
+                type: object
+                additionalProperties: { type: number }
+
+paths:
+  /r/{resourceType}/{provider}/{path}:
+    post:
+      summary: Data plane — proxy a resource action
+      description: >
+        OpenAI-compat aliasing means /r/llm/{provider}/v1/chat/completions maps
+        to action chat.completions. GET/PUT/PATCH/DELETE are also served for
+        actions that declare them (models.list, http-passthrough patterns).
+      security: [{ grantToken: [] }, { popHeaders: [] }]
+      parameters:
+        - { name: resourceType, in: path, required: true, schema: { type: string } }
+        - { name: provider, in: path, required: true, schema: { type: string } }
+        - { name: path, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json: { schema: { type: object } }
+      responses:
+        "200": { description: Proxied provider response (JSON or SSE stream) }
+        "400": { description: Invalid request / ambiguous auth, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "401": { description: Missing/invalid credential }
+        "403": { description: Grant state, permission, constraint, browser, or IP denial }
+        "404": { description: Unknown/disabled connector or action }
+        "429": { description: Rate limit or budget exceeded }
+        "502": { description: Upstream failure (mapped via connector errorMap) }
+
+  /v1/grant:
+    get:
+      summary: Resolve what this grant actually got
+      security: [{ grantToken: [] }, { popHeaders: [] }]
+      responses:
+        "200":
+          description: Resolved contract
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/GrantResolution" } }
+
+  /v1/token/claim:
+    post:
+      summary: Exchange a single-use claim code for the grant token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties: { code: { type: string } }
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  grantId: { type: string }
+                  expiresAt: { type: [string, "null"], format: date-time }
+        "400": { description: Invalid or expired code }
+        "410": { description: Code already used (owner is notified) }
+        "429": { description: Too many attempts from this IP }
+
+  /api/resources:
+    get:
+      summary: Public discovery of configured connectors
+      responses:
+        "200": { description: Gateway info + resource entries }
+
+  /api/connect/prepare:
+    post:
+      summary: Submit a grant document with a pairing code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [connectCode, grant]
+              properties:
+                connectCode: { type: string }
+                grant: { $ref: "#/components/schemas/GrantDocument" }
+      responses:
+        "200":
+          description: PENDING grant created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  grantId: { type: string }
+                  sessionToken: { type: string, description: "= grantId (legacy name)" }
+                  approvalUrl: { type: string, format: uri }
+                  expiresAt: { type: string, format: date-time }
+        "400": { description: Invalid code or document }
+
+  /api/connect/status:
+    get:
+      summary: Poll approval status
+      parameters:
+        - { name: session, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: pending | approved | rejected | expired
+        "404": { description: Unknown session }
+
+  /api/connect/rotate:
+    post:
+      summary: Rotate PoP credential (signed with the current key)
+      security: [{ popHeaders: [] }]
+      responses:
+        "200": { description: New credential active }
+
+  /api/app/status:
+    get:
+      summary: App self-status (PoP)
+      security: [{ popHeaders: [] }]
+      responses:
+        "200": { description: App info, permissions, grant state }
+
+  /api/admin/grants:
+    get:
+      summary: List grants
+      security: [{ adminSecret: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+      responses: { "200": { description: Grants } }
+    post:
+      summary: Create a PENDING grant from a pasted document
+      security: [{ adminSecret: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { document: { $ref: "#/components/schemas/GrantDocument" } }
+      responses: { "200": { description: PENDING grant + approval URL } }
+
+  /api/admin/grants/{id}:
+    get:
+      summary: Grant detail (frozen document, permissions + usage, tokens, audit tail)
+      security: [{ adminSecret: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Detail } }
+    patch:
+      summary: Grant lifecycle action
+      security: [{ adminSecret: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, deny, revoke, renew, suspend, reactivate, regenerate_token]
+                decisions: { type: object }
+      responses:
+        "200": { description: Updated grant (approve/regenerate may include a token) }
+        "409": { description: Invalid state transition }
+
+  /api/admin/grants/fetch:
+    post:
+      summary: Fetch /.well-known/cookey-grant.json from an app URL
+      security: [{ adminSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appUrl]
+              properties: { appUrl: { type: string, format: uri } }
+      responses:
+        "200": { description: PENDING grant created }
+        "422": { description: Fetch blocked or invalid document }
+
+  /api/admin/connectors:
+    get:
+      summary: List installed connectors
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Connectors + credential status } }
+    post:
+      summary: Install (preview / confirm / custom / restore built-ins)
+      security: [{ adminSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [url, preview]
+                  properties: { url: { type: string }, preview: { const: true } }
+                - type: object
+                  required: [url, document]
+                  properties:
+                    url: { type: string }
+                    document: { $ref: "#/components/schemas/ConnectorDocument" }
+                    registry: { type: boolean }
+                - type: object
+                  required: [document]
+                  properties: { document: { $ref: "#/components/schemas/ConnectorDocument" } }
+                - type: object
+                  required: [restoreBuiltins]
+                  properties: { restoreBuiltins: { const: true } }
+      responses:
+        "200": { description: Preview payload or installed row }
+        "409": { description: Already installed (use the update flow) }
+        "422": { description: Fetch blocked or validation failure }
+
+  /api/admin/connectors/{id}:
+    get:
+      summary: Connector detail
+      security: [{ adminSecret: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Row + credentials + bound grants } }
+    patch:
+      summary: Enable/disable, check or apply update
+      security: [{ adminSecret: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Result } }
+    delete:
+      summary: Remove connector
+      security: [{ adminSecret: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: keepCredentials, in: query, schema: { type: string, enum: ["1"] } }
+      responses:
+        "200": { description: Removed }
+        "409": { description: Active grants bound }
+
+  /api/admin/connectors/marketplace:
+    get:
+      summary: Marketplace registry index (SSRF-guarded, cached)
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Entries + installed map } }
+
+  /api/admin/connectors/test-call:
+    post:
+      summary: Fire a test request through enforcement + adapter + egress guard
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Verbatim result or staged error } }
+
+  /api/admin/templates:
+    get:
+      summary: List grant templates
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Templates } }
+    post:
+      summary: Create/update a template by name
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Template } }
+    delete:
+      summary: Delete a template
+      security: [{ adminSecret: [] }]
+      parameters: [{ name: id, in: query, required: true, schema: { type: string } }]
+      responses: { "200": { description: Deleted } }
+
+  /api/admin/settings:
+    get:
+      summary: All settings
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Settings + defaults } }
+    patch:
+      summary: Upsert one setting
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Saved } }
+
+  /api/admin/notifications:
+    get:
+      summary: Notification feed
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Notifications + unread count } }
+
+  /api/admin/stats:
+    get:
+      summary: Overview aggregates
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Stats } }
+
+  /api/admin/logs:
+    get:
+      summary: Request logs with filters
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Paged logs } }
+
+  /api/admin/pairing/generate:
+    post:
+      summary: Generate a single-use pairing string
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: pairingString + expiresAt } }
+
+  /api/admin/resources:
+    get:
+      summary: List provider credentials
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Resources } }
+    post:
+      summary: Create/update a provider credential (envelope-encrypted)
+      security: [{ adminSecret: [] }]
+      responses: { "200": { description: Resource } }
+    delete:
+      summary: Delete a provider credential
+      security: [{ adminSecret: [] }]
+      parameters: [{ name: resourceId, in: query, required: true, schema: { type: string } }]
+      responses: { "200": { description: Deleted } }
+
+  /api/cron/sweep:
+    post:
+      summary: Hourly housekeeping sweep
+      security: [{ cronSecret: [] }]
+      responses: { "200": { description: Per-task counters } }
+
+  /api/cron/connector-updates:
+    post:
+      summary: Daily connector update check (records only)
+      security: [{ cronSecret: [] }]
+      responses: { "200": { description: checked/updatesFound } }
+
+  /api/cron/digest:
+    post:
+      summary: Weekly usage digest
+      security: [{ cronSecret: [] }]
+      responses: { "200": { description: Digest result } }
