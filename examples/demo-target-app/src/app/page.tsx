@@ -493,6 +493,12 @@ function HomePageContent() {
             Reference implementation for integrating with Personal Resource Gateway
             using server-side PoP signing.
           </p>
+          <a
+            href="/bearer"
+            className="inline-block text-sm text-indigo-600 dark:text-indigo-400 underline"
+          >
+            Try the bearer-token connection instead (no SDK) →
+          </a>
         </div>
 
         {/* Connection Status Card */}

@@ -1,0 +1,25 @@
+{
+  "specVersion": "1",
+  "app": {
+    "name": "Cookey Demo Target App",
+    "description": "Reference consumer showing bearer-token and PoP connections to a Cookey gateway.",
+    "homepage": "https://github.com/glueco/cookey"
+  },
+  "runtime": "server",
+  "auth": "bearer",
+  "requests": [
+    {
+      "resource": "llm:*",
+      "actions": ["chat.completions"],
+      "reason": "Interactive chat playground for trying out the gateway.",
+      "constraints": {
+        "maxOutputTokens": 1024
+      }
+    }
+  ],
+  "duration": "7d",
+  "budget": {
+    "dailyRequests": 200,
+    "dailyTokens": 100000
+  }
+}
