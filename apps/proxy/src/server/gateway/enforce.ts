@@ -5,7 +5,7 @@ import {
   type EnforcementRule,
   type UsageSpec,
 } from "@/server/connectors/schema";
-import { ErrorCode } from "@glueco/shared";
+import { ErrorCode } from "@/shared";
 
 // ============================================
 // GENERIC ENFORCEMENT ENGINE (4.3)
@@ -25,7 +25,7 @@ export interface EnforcementViolation {
 }
 
 export type EnforcementOutcome =
-  | { allowed: true; body: unknown }
+  | { allowed: true; body: unknown; clamped: boolean }
   | { allowed: false; violation: EnforcementViolation };
 
 // ---- dot-path helpers ----
@@ -73,6 +73,7 @@ function evaluateRule(
   constraints: Record<string, unknown>,
   connector: ConnectorDocument,
   body: unknown,
+  state: { clamped: boolean },
 ): EnforcementViolation | null {
   const constraintValue = constraints[rule.constraint];
   const fieldValue = getPath(body, field);
@@ -116,11 +117,15 @@ function evaluateRule(
 
     case "clampMax": {
       // Silently caps; never errors. Cap = constraint value, else rule default.
+      // Clamping is surfaced via the x-cookey-clamped response header (4.3).
       const cap =
         typeof constraintValue === "number" ? constraintValue : rule.default;
       if (cap === undefined) return null;
       if (typeof fieldValue === "number") {
-        if (fieldValue > cap) setPath(body, field, cap);
+        if (fieldValue > cap) {
+          setPath(body, field, cap);
+          state.clamped = true;
+        }
       } else {
         setPath(body, field, cap);
       }
@@ -215,7 +220,7 @@ export function applyEnforcement(
 ): EnforcementOutcome {
   const enforceMap = action.enforce ?? {};
   const entries = Object.entries(enforceMap);
-  if (entries.length === 0) return { allowed: true, body };
+  if (entries.length === 0) return { allowed: true, body, clamped: false };
 
   // Enforcement over a non-object body cannot be trusted — fail closed
   // (unparseable JSON is rejected earlier; this catches arrays/scalars)
@@ -231,6 +236,7 @@ export function applyEnforcement(
   }
 
   const effectiveConstraints = constraints ?? {};
+  const state = { clamped: false };
 
   for (const [field, entry] of entries) {
     for (const rule of enforcementRules(entry)) {
@@ -240,12 +246,13 @@ export function applyEnforcement(
         effectiveConstraints,
         connector,
         body,
+        state,
       );
       if (violation) return { allowed: false, violation };
     }
   }
 
-  return { allowed: true, body };
+  return { allowed: true, body, clamped: state.clamped };
 }
 
 // ============================================

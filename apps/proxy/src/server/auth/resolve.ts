@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { ErrorCode, getErrorStatus } from "@glueco/shared";
+import { ErrorCode, getErrorStatus } from "@/shared";
 import { authenticateRequest, getAuthErrorStatus } from "./pop";
 import { authenticateBearer, extractBearerToken } from "./bearer";
 import { getClientIp } from "@/lib/client-ip";

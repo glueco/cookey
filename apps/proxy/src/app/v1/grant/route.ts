@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { resolveAuth, checkOriginGate } from "@/server/auth/resolve";
 import { getUsageSnapshot } from "@/server/limits/budget";
 import { resolveConnector } from "@/server/connectors/registry";
-import { createErrorResponse } from "@glueco/shared";
+import { createErrorResponse } from "@/shared";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
 // ============================================
@@ -34,10 +34,7 @@ export async function GET(request: NextRequest) {
   }
 
   const permissions = await prisma.resourcePermission.findMany({
-    where: {
-      status: "ACTIVE",
-      OR: [{ grantId: grant.id }, { appId: grant.appId, grantId: null }],
-    },
+    where: { grantId: grant.id, status: "ACTIVE" },
     orderBy: [{ resourceId: "asc" }, { action: "asc" }],
   });
 

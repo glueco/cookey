@@ -1,31 +1,30 @@
 """
-Connection flow for the Glueco Gateway SDK.
+Connection flow for the Cookey SDK: submit a grant document to a gateway
+using a pairing string.
 
-Handles:
-1. Parsing pairing strings
-2. Initiating the connect/prepare flow (sends public key to proxy)
-3. Handling callbacks after user approval
-
-The SDK uses GLUECO_PRIVATE_KEY from environment. It derives the public key
-and sends it during connection. The app only needs to persist app_id and proxy_url.
+The gateway accepts ONLY grant documents (docs/GRANT_SPEC.md). When the
+document requests PoP auth and carries no publicKey, it is derived from
+GLUECO_PRIVATE_KEY.
 
 Example:
-    >>> from glueco_sdk import connect, handle_callback
-    >>> 
-    >>> # Initiate connection (SDK loads key from env)
-    >>> result = connect(
+    >>> from glueco_sdk import submit_grant
+    >>>
+    >>> result = submit_grant(
     ...     pairing_string="pair::https://gateway.example.com::abc123",
-    ...     app_name="My App",
-    ...     requested_permissions=[
-    ...         {"resource_id": "llm:groq", "actions": ["chat.completions"]}
-    ...     ],
-    ...     redirect_uri="https://myapp.com/callback",
+    ...     grant={
+    ...         "specVersion": "1",
+    ...         "app": {"name": "My App"},
+    ...         "runtime": "server",
+    ...         "auth": "pop",
+    ...         "requests": [
+    ...             {"resource": "llm:*", "actions": ["chat.completions"],
+    ...              "reason": "Core chat features."}
+    ...         ],
+    ...         "duration": "90d",
+    ...     },
     ... )
-    >>> # Returns only: {approval_url, proxy_url, expires_at} - NO secrets!
-    >>> 
-    >>> # After user approval, handle callback
-    >>> callback = handle_callback(status, app_id, expires_at)
-    >>> # App persists: callback["app_id"], proxy_url
+    >>> # {"approval_url", "proxy_url", "grant_id", "expires_at"} — no secrets
+    >>> # Poll {proxy_url}/api/connect/status?session={grant_id} for approval.
 """
 
 from __future__ import annotations
@@ -99,98 +98,49 @@ def create_pairing_string(proxy_url: str, connect_code: str) -> str:
 
 
 # =============================================================================
-# CONNECT FLOW
+# GRANT SUBMISSION
 # =============================================================================
 
-def connect(
+def submit_grant(
     pairing_string: str,
-    app_name: str,
-    requested_permissions: List[Dict[str, Any]],
-    redirect_uri: str,
+    grant: Dict[str, Any],
     *,
-    app_description: Optional[str] = None,
-    app_homepage: Optional[str] = None,
     timeout: float = 30.0,
 ) -> Dict[str, Any]:
     """
-    Initiate the connection flow with the gateway.
-    
-    This function:
-    1. Parses the pairing string
-    2. Loads private key seed from GLUECO_PRIVATE_KEY env
-    3. Derives public key from seed
-    4. Calls the /api/connect/prepare endpoint with public_key
-    5. Returns the approval URL (NO secrets returned)
-    
+    Submit a grant document to the gateway.
+
     Args:
-        pairing_string: Pairing string from gateway admin.
-        app_name: Application name shown during approval.
-        requested_permissions: List of permission requests.
-        redirect_uri: URL to redirect back to after approval.
-        app_description: Optional app description.
-        app_homepage: Optional app homepage URL.
+        pairing_string: Pairing string from the gateway admin.
+        grant: The grant document (docs/GRANT_SPEC.md). If auth is "pop"
+            and publicKey is missing, it is derived from GLUECO_PRIVATE_KEY.
         timeout: Request timeout in seconds.
-        
+
     Returns:
-        Dict with:
-            - approval_url: URL to redirect user to
-            - proxy_url: Gateway proxy URL
-            - expires_at: Datetime when session expires
-        (NO private key or keypair returned!)
-            
+        Dict with approval_url, proxy_url, grant_id, expires_at — no secrets.
+
     Raises:
-        KeyError: If GLUECO_PRIVATE_KEY env var is missing or invalid.
-        ValueError: If pairing string is invalid.
-        ConnectError: If gateway request fails.
+        KeyError: If GLUECO_PRIVATE_KEY is needed but missing/invalid.
+        ValueError: If the pairing string is invalid.
+        ConnectError: If the gateway rejects the request.
     """
-    # Parse pairing string
     pairing_info = parse_pairing_string(pairing_string)
-    
-    # Load seed from env and derive public key
-    seed = load_seed_from_env()
-    public_key = public_key_from_seed(seed)
-    public_key_b64 = base64_encode(public_key)
-    
-    # Build permission list for API
-    permissions_payload = []
-    for perm in requested_permissions:
-        perm_dict = {
-            "resourceId": perm["resource_id"],
-            "actions": perm["actions"],
-        }
-        if "requested_duration" in perm:
-            duration = perm["requested_duration"]
-            perm_dict["requestedDuration"] = {
-                "type": duration["type"],
-                duration["type"]: duration["value"],
-            }
-        permissions_payload.append(perm_dict)
-    
-    # Build request payload - includes public_key for proxy to store
-    request_payload: Dict[str, Any] = {
-        "connectCode": pairing_info.connect_code,
-        "app": {"name": app_name},
-        "publicKey": public_key_b64,  # Proxy stores this with app_id
-        "requestedPermissions": permissions_payload,
-        "redirectUri": redirect_uri,
-    }
-    
-    if app_description:
-        request_payload["app"]["description"] = app_description
-    if app_homepage:
-        request_payload["app"]["homepage"] = app_homepage
-    
-    # Call prepare endpoint
+
+    document = dict(grant)
+    if document.get("auth") == "pop" and not document.get("publicKey"):
+        seed = load_seed_from_env()
+        document["publicKey"] = base64_encode(public_key_from_seed(seed))
+
     try:
         response = httpx.post(
             f"{pairing_info.proxy_url}/api/connect/prepare",
-            json=request_payload,
+            json={"connectCode": pairing_info.connect_code, "grant": document},
             headers={"Content-Type": "application/json"},
             timeout=timeout,
         )
     except httpx.RequestError as e:
         raise ConnectError(f"Failed to connect to gateway: {e}", 0)
-    
+
     if not response.is_success:
         try:
             body = response.json()
@@ -202,46 +152,11 @@ def connect(
         except Exception:
             error_message = f"Connection failed: {response.status_code}"
         raise ConnectError(error_message, response.status_code)
-    
+
     data = response.json()
-    
-    # Return ONLY non-secret data
     return {
         "approval_url": data["approvalUrl"],
         "proxy_url": pairing_info.proxy_url,
+        "grant_id": data.get("grantId"),
         "expires_at": datetime.fromisoformat(data["expiresAt"].replace("Z", "+00:00")),
     }
-
-
-def handle_callback(
-    status: Optional[str],
-    app_id: Optional[str],
-    expires_at: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Handle the callback after user approval/denial.
-    
-    Call this when the user is redirected back to your app.
-    The app should persist app_id and proxy_url.
-    
-    Args:
-        status: "status" query parameter ("approved" or "denied").
-        app_id: "app_id" query parameter (if approved).
-        expires_at: "expires_at" query parameter (optional, ISO format).
-        
-    Returns:
-        Dict with:
-            - approved: bool
-            - app_id: str (if approved) - PERSIST THIS
-            - expires_at: datetime (if provided)
-    """
-    if status == "approved" and app_id:
-        exp = None
-        if expires_at:
-            try:
-                exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
-                pass
-        return {"approved": True, "app_id": app_id, "expires_at": exp}
-    
-    return {"approved": False, "app_id": None, "expires_at": None}

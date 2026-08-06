@@ -10,7 +10,6 @@
 
 export interface GrantDocumentShape {
   specVersion?: string;
-  legacy?: boolean;
   app: {
     name: string;
     description?: string;

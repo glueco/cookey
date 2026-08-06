@@ -29,7 +29,7 @@ export function hashBody(body: Uint8Array | string): string {
 
 /**
  * Verify an Ed25519 signature using a pre-built canonical string.
- * This is the preferred method - use buildCanonicalRequestV1 from @glueco/shared.
+ * This is the preferred method - use buildCanonicalRequestV1 from @/shared.
  */
 export async function verifySignatureWithCanonical(
   publicKeyBase64: string,

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { exchangeClaimCode } from "@/server/grants/claim-codes";
 import { checkRateLimit } from "@/server/limits/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
-import { createErrorResponse, ErrorCode } from "@glueco/shared";
+import { createErrorResponse, ErrorCode } from "@/shared";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
 // ============================================

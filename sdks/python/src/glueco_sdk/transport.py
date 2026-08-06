@@ -1,7 +1,7 @@
 """
 Transport types and protocol for the Glueco Gateway SDK.
 
-Defines GatewayTransport - the interface that plugins use to make requests.
+Defines GatewayTransport - the signed-request interface.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class GatewayTransport(Protocol):
     The SDK provides implementations via create_transport().
     
     Example:
-        >>> def my_plugin(transport: GatewayTransport):
+        >>> def my_helper(transport: GatewayTransport):
         ...     response = transport.request(
         ...         resource_id="llm:groq",
         ...         action="chat.completions",

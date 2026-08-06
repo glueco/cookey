@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { ErrorCode } from "@glueco/shared";
+import { ErrorCode } from "@/shared";
 import { hashToken, TOKEN_PREFIX } from "@/server/grants/tokens";
 import type { Grant, GrantToken } from "@prisma/client";
 

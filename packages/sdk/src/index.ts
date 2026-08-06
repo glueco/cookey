@@ -35,11 +35,8 @@ export {
   type PairingInfo,
 } from "./pairing";
 export {
-  connect,
   submitGrant,
-  handleCallback,
   ConnectError,
-  type ConnectOptions,
   type ConnectResult,
   type GrantSubmitOptions,
 } from "./connect";

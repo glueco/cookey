@@ -284,7 +284,7 @@ Location: `apps/proxy/src/server/gateway/enforce.ts` (rewrite of existing file).
 | Rule | Behavior |
 |---|---|
 | `allowedValues` | Body field must be in the constraint array (e.g. `model` ∈ `allowedModels`). Missing constraint → connector `models` list applies if the constraint key is `allowedModels`, else unrestricted. Violation → 403 `ERR_CONSTRAINT`. |
-| `clampMax` | Body field is clamped down to the constraint value (or `default` if field absent). Never errors; silently caps. |
+| `clampMax` | Body field is clamped down to the constraint value (or `default` if field absent). Never errors; silently caps. When a clamp fires, the gateway adds a response header `x-cookey-clamped: <field>[,<field>…]` so app developers can see why output was shortened. (Confirmed decision: this intentionally replaces the old plugins' 422-on-over-cap behavior.) |
 | `allowFlag` | If constraint is `false`, body field must be absent/false. Violation → 403. |
 | `maxItems` | Array field length ≤ constraint (e.g. recipients ≤ `maxRecipients`). |
 | `domainAllowlist` | Email-ish field's domain(s) must be in constraint array (e.g. `allowedFromDomains`). |
@@ -397,7 +397,7 @@ On approve: freeze the submitted document + a `decisions` JSON (bindings, overri
 ### 5.4 Credentials: bearer tokens and PoP
 
 **Bearer (`GrantToken`):**
-- Format: `ck_` + 40 chars base62 from CSPRNG (`crypto.randomBytes`). Display prefix = first 12 chars, stored plaintext for identification; the full token is stored **only** as SHA-256. Shown to a human exactly once.
+- Format: `ck_` + 40 chars base62 from CSPRNG (`crypto.randomBytes`). Display prefix = first 12 chars, stored plaintext for identification. The full token is stored as SHA-256 (used for all request verification) **plus** an envelope-encrypted copy (`encryptedToken`/`tokenIv`, same vault mechanism as provider secrets) that exists solely to power the pre-first-use copy-paste window and the claim-code exchange. The encrypted copy MUST be wiped (columns nulled) at first data-plane use or successful claim, whichever comes first — after that the row is hash-only. A test MUST assert the wipe on both paths.
 - Presented as `Authorization: Bearer ck_…` on data-plane requests. Auth resolution order in the pipeline: `Bearer ck_` prefix → GrantToken path; `x-sig` header present → PoP path; both → 400; neither → 401.
 - Expiry: `min(grant expiry, current renewal period end)`. Renewal extends the SAME token's expiry (no reissue — apps hold read-only config).
 - Revocation: owner revokes token or grant → immediate 401. Track `lastUsedAt`, `lastUsedIp` (update at most once/min per token to avoid write amplification).
@@ -501,7 +501,9 @@ model GrantToken {
   id           String    @id @default(cuid())
   grantId      String
   grant        Grant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
-  tokenHash    String    @unique            // SHA-256 hex of full token
+  tokenHash    String    @unique            // SHA-256 hex of full token (request verification)
+  encryptedToken String?                    // vault-encrypted copy — ONLY for copy-paste window /
+  tokenIv        String?                    // claim exchange; MUST be nulled at first use or claim
   displayPrefix String                      // "ck_a1B2c3d4e" — first 12 chars, for UI identification
   expiresAt    DateTime
   revokedAt    DateTime?
@@ -561,7 +563,7 @@ model Notification {
 Modifications to existing models:
 
 - `App`: add `grant Grant?` relation. Keep everything else (credentials, status) — App remains the identity anchor for PoP.
-- `ResourcePermission`: add optional `grantId String?` + relation + index. New permissions always set it. Keep `appId` (backfill: existing permissions' apps get a synthesized ACTIVE Grant row with `document: {legacy: true, ...reconstructed}` so old PoP apps keep working — write this backfill in the migration).
+- `ResourcePermission`: add `grantId` + relation + index. Every permission row is owned by a Grant — there is NO legacy backfill and NO appId-fallback lookup in the pipeline (see Addendum A); permission resolution is by `grantId + resourceId + action` only. `appId` stays as a convenience denormalization, not an auth path. Pre-grant database contents are unsupported: deployments are reset (or manually truncated) at upgrade.
 - `RequestLog`: add `grantId String?`, `connectorId String?` (the resourceId served), `costEstimate Float?` (computed from pricing when available).
 - `InstallSession`: superseded by `Grant(status: PENDING)` + `decisions`. Migrate: create PENDING grants from open sessions, then drop the model in the cleanup migration.
 - `AppLimit`: absorbed by grant-level budget in `decisions` + permissions. Drop in cleanup migration after backfill.
@@ -580,7 +582,7 @@ Redis removal checklist: delete `lib/redis.ts`; nonces → `PopNonce`; `checkRat
 |---|---|
 | `POST/GET /r/[resourceType]/[provider]/[...path]` | Keep shape incl. `v1/` aliasing. Auth now bearer OR PoP. Resolves connector from registry instead of plugin. For `http-passthrough` connectors the remaining path is matched against action `pathPattern`s. |
 | `GET /api/resources` | Keep. Now generated from enabled connectors. |
-| `POST /api/connect/prepare` | Upgraded: accepts grant document (5.1) + pairing code. Keep legacy flat-format normalization for old SDK clients (mark deprecated). Creates PENDING Grant. |
+| `POST /api/connect/prepare` | Upgraded: accepts grant document (5.1) + pairing code ONLY. Legacy flat-format normalization is deleted, not deprecated (see Addendum A) — old SDK 0.4.0 clients receive a clear 400 pointing at the new spec. Creates PENDING Grant. |
 | `GET /api/connect/status` | Keep shape; reads Grant status. |
 | `POST /api/connect/rotate` | Keep (PoP key rotation). |
 | `GET /api/app/status` | Keep; now includes grant state. |
@@ -615,7 +617,7 @@ Stage order (preserve current invariants — single body parse, no upstream call
 2. **Grant state:** must be ACTIVE (state-specific error codes for suspended/expired/revoked).
 3. **Origin gate:** if request has `Origin` or `Sec-Fetch-Site: cross-site` headers (browser-originated) and `grant.allowBrowser` is false → 403 `ERR_BROWSER_BLOCKED`. Apply on `/r/*` and `/v1/grant`.
 4. **Egress IP check:** if `grant.egressIps` set, client IP must match (reuse KeyControl's matcher semantics: exact, `192.168.*` wildcards, CIDR — implement in `lib/ip-match.ts` with unit tests).
-5. **Permission lookup:** unchanged shape (`grantId + resourceId + action`, falling back to appId for legacy rows), incl. validFrom/expiresAt/timeWindow checks from `access-policy.ts` (keep that module).
+5. **Permission lookup:** `grantId + resourceId + action` only (no appId fallback — Addendum A), incl. validFrom/expiresAt/timeWindow checks from `access-policy.ts` (keep that module).
 6. **Rate limit:** RateCounter fixed-window (permission-level values, as today).
 7. **Budget:** PermissionUsage atomic upsert (semantics preserved from redis.ts).
 8. **Enforcement:** generic engine (4.3) using connector action `enforce` + permission constraints.
@@ -702,7 +704,9 @@ Replaces `ApprovalForm` + the 1,151-line `AdvancedApprovalForm`. Layout top-to-b
 4. Template dropdown (applies over the form) + "Save as template".
 5. Decision form: duration + renewable toggle/period, auth radio (with the exact warning matrix from 5.3 — red banner component for bearer-long), budgets/constraints (prefilled from request; tightening free, loosening requires an explicit confirmation checkbox), hardening accordion (egress IPs — surfaced non-collapsed when runtime=server; allowBrowser; inactivity days).
 6. Spend projection panel (5.7).
-7. Approve / Deny. On approve → claim-code redirect happens server-side, or token copy-paste screen with language snippets (curl, Python `openai` client with `base_url`, JS fetch, PoP SDK sample when applicable).
+7. Approve / Deny. On approve, one success screen serves both delivery paths — the owner never needs to open the dashboard separately:
+   - **With `redirectUri`:** an interstitial success page that auto-redirects (client-side, ~2s) to `redirectUri?code=…` but ALSO displays the same claim link as a visible clickable/copyable fallback — redirects fail in the wild (Streamlit iframes, popup blockers; see the Outsmart fork's redirect-fallback history), so the manual path must always be on screen. The claim code's single-use property is unaffected.
+   - **Without `redirectUri`:** the token itself, with copy button and per-language snippets (curl, Python `openai` client with `base_url`, JS fetch, PoP SDK sample when applicable).
 
 ### 9.4 Connector install review screen
 
@@ -740,7 +744,7 @@ Move `../forks/python-packages/glueco-sdk` into this repo at `sdks/python/` (kee
 
 ### 10.3 `packages/shared`
 
-Gateway-internal only after this migration. Fold what the gateway uses (error codes, PoP canonical, duration presets, remaining schemas) into `apps/proxy/src/shared/` and **delete the package** — the npm-published `@glueco/shared` gets a final deprecation release. (If workspace ergonomics make folding painful, keeping the package private/unpublished is acceptable; deleting the five plugin packages is not negotiable.)
+Gateway-internal only after this migration. Fold what the gateway uses (error codes, PoP canonical, duration presets, remaining schemas) into `apps/proxy/src/shared/` and **delete the package**. The npm-published `@glueco/shared` gets a final deprecation release. There is NO fallback: keeping it as a private workspace package is not acceptable (superseded decision — see Addendum A). Remove `build:shared` and every `@glueco/shared` workspace reference from root scripts and configs.
 
 ### 10.4 npm cleanup
 
@@ -798,7 +802,7 @@ Work in this order. Each phase must end green: `npm run build`, `npm run test`, 
 **Accept:** clean `git status` after build+dev run; grep for `glueco/gateway` returns nothing.
 
 ### Phase 1 — Grants, tokens, Postgres-only (the risky novel part; runs against the EXISTING plugin system)
-1. Migrations: Grant, GrantToken, ClaimCode, PopNonce, RateCounter, Notification (+ App/ResourcePermission/RequestLog columns; legacy-grant backfill).
+1. Migrations: Grant, GrantToken, ClaimCode, PopNonce, RateCounter, Notification (+ App/ResourcePermission/RequestLog columns). No legacy backfill — clean break per Addendum A.
 2. Redis removal (Part 6 checklist); env cleanup; `CRON_SECRET`.
 3. Pipeline: bearer auth path, grant-state stage, origin gate, egress-IP check; PoP nonce on Postgres.
 4. Grant submit/approve flow: upgraded `/api/connect/prepare`, `/api/admin/grants/*`, `/v1/token/claim`, `/v1/grant`, well-known fetch, manual paste.
@@ -840,10 +844,27 @@ Docker Compose self-host path (later, after Vercel path is polished); multi-owne
 ## Part 13 — Working Agreements for the Coding Agent
 
 1. **Read before porting.** The five plugin `proxy.ts` files, `pipeline.ts`, `redis.ts`, `pop.ts`, and `access-policy.ts` are reference implementations whose behavior must be preserved through the refactor. When this document and the code disagree about *current* behavior, the code wins; when they disagree about *target* behavior, this document wins.
-2. **Additive migrations**, backfills before drops, every migration runnable on a live database.
+2. **Real migrations only** (`prisma migrate dev` / `migrate deploy`) — `db push` must not appear in any build/CI script. Migrations need not preserve pre-grant legacy data (clean-break decision, Addendum A); they MUST remain replayable from empty to current on a fresh database.
 3. **No silent scope changes.** If something here proves wrong or infeasible mid-implementation, stop and flag it rather than improvising a different architecture.
-4. **Preserve wire compatibility** for: PoP v1 headers/signing, `/r/...` URL shapes, `/api/connect/*` request/response shapes (legacy normalization included), `/api/resources` response shape (additive changes only).
+4. **Preserve wire compatibility** for: PoP v1 headers/signing, `/r/...` URL shapes, and `/api/resources` response shape (additive changes only). `/api/connect/prepare` accepts ONLY the new grant document format — legacy request shapes are deliberately dropped (Addendum A).
 5. **Tests accompany code** in the same phase. Every security item in Part 8 gets at least one test.
 6. **Keep files small.** ~400-line ceiling for new/refactored files; extract.
 7. **Match existing idiom** (logger usage, error-response helpers, zod-first validation, section-comment style).
 8. **Never log or echo secrets** — provider keys, `ck_` tokens, claim/pairing codes, `ADMIN_SECRET`. There is a test for this; keep it passing.
+
+---
+
+## Addendum A — Owner Decision Log (supersedes any conflicting text above)
+
+Rulings on implementation decisions flagged during execution. These are final.
+
+1. **`clampMax` clamps; it does not error.** Confirmed. The old plugins' 422-on-over-cap behavior is intentionally replaced. Add the `x-cookey-clamped` response header (4.3) so clamping is observable by app developers.
+2. **`GrantToken.encryptedToken`/`tokenIv` are approved** as the resolution of the spec's hash-only vs. later-display contradiction. Hard requirement attached: the encrypted copy is nulled at first data-plane use or successful claim (whichever first), with tests asserting the wipe on both paths (5.4).
+3. **Full legacy purge — no dual-system residue.** Every deployment is personal and pre-1.0; there are no external users to protect. Therefore:
+   - `packages/shared` is DELETED and folded into `apps/proxy/src/shared/`. The "keep it as a private workspace package" fallback is revoked. Remove `build:shared`, the `@glueco/shared` reference in `build:proxy`, and any workspace/tsconfig references.
+   - **Migrations only.** Remove `prisma db push` from every build/CI/deploy script (root `db:push` script may remain as a local dev convenience only, or be deleted). Vercel build runs `prisma migrate deploy`. The existing demo deployment's database is reset or manually baselined once (`prisma migrate resolve`) — the codebase carries zero accommodations for it.
+   - Legacy flat-format normalization in `/api/connect/prepare`: DELETED (clear 400 for old shapes).
+   - `appId`-fallback permission lookup in the pipeline: DELETED — resolution is `grantId + resourceId + action` only.
+   - Synthesized legacy-grant backfill migration: DELETED / not written.
+   - Grep-level acceptance for this ruling: `grep -ri "legacy" apps/ packages/ sdks/` returns no functional code paths (comments describing history are fine, but prefer removing them too).
+4. **Environment note (informational):** the zip round-trip left Linux Prisma engines in `node_modules` (silently no-op'ing the CLI on macOS) — fixed by reinstall; `../forks/outsmart/.venv` is similarly Linux-flavored and must be recreated (`pip install -r requirements.txt`; its requirements no longer include glueco packages).

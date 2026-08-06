@@ -12,7 +12,7 @@ import {
   POP_VERSION,
   buildCanonicalRequestV1,
   getPathWithQuery,
-} from "@glueco/shared";
+} from "@/shared";
 
 // ============================================
 // PoP AUTHENTICATION
@@ -60,17 +60,11 @@ export async function authenticateRequest(
       };
     }
 
-    // 2. Validate PoP version (require v1, reject unknown versions)
-    // For strict mode: always require x-pop-v=1
-    // For backward compat: treat missing x-pop-v as legacy (v0)
-    const popVersion = headers.popVersion;
-    const isV1 = popVersion === POP_VERSION;
-    const isLegacy = !popVersion; // Missing version = legacy
-
-    if (popVersion && popVersion !== POP_VERSION) {
+    // 2. Validate PoP version — v1 is required, nothing else is spoken
+    if (headers.popVersion !== POP_VERSION) {
       return {
         success: false,
-        error: `Unsupported PoP version: ${popVersion}. Expected: ${POP_VERSION}`,
+        error: `Unsupported PoP version: ${headers.popVersion ?? "(missing x-pop-v)"}. Expected: ${POP_VERSION}`,
         errorCode: ErrorCode.ERR_UNSUPPORTED_POP_VERSION,
       };
     }
@@ -128,33 +122,16 @@ export async function authenticateRequest(
       };
     }
 
-    // 6. Build canonical request string
+    // 6. Build canonical request string (v1: path includes query)
     const url = new URL(request.url);
-    const bodyHash = hashBody(body);
-
-    let canonicalString: string;
-    if (isV1) {
-      // V1: include query string in path
-      const pathWithQuery = getPathWithQuery(url);
-      canonicalString = buildCanonicalRequestV1({
-        method: request.method,
-        pathWithQuery,
-        appId: headers.appId,
-        ts: headers.timestamp,
-        nonce: headers.nonce,
-        bodyHash,
-      });
-    } else {
-      // Legacy (v0): pathname only (backward compat)
-      canonicalString = buildCanonicalRequestV1({
-        method: request.method,
-        pathWithQuery: url.pathname, // Legacy: no query string
-        appId: headers.appId,
-        ts: headers.timestamp,
-        nonce: headers.nonce,
-        bodyHash,
-      });
-    }
+    const canonicalString = buildCanonicalRequestV1({
+      method: request.method,
+      pathWithQuery: getPathWithQuery(url),
+      appId: headers.appId,
+      ts: headers.timestamp,
+      nonce: headers.nonce,
+      bodyHash: hashBody(body),
+    });
 
     // 7. Verify signature against any active credential
     for (const credential of app.credentials) {
@@ -200,6 +177,8 @@ export function getAuthErrorStatus(errorCode: ErrorCode): number {
       return 401;
     case ErrorCode.ERR_APP_DISABLED:
       return 403;
+    case ErrorCode.ERR_UNSUPPORTED_POP_VERSION:
+      return 400;
     case ErrorCode.ERR_INTERNAL:
     default:
       return 500;

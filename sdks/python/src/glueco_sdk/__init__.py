@@ -1,45 +1,42 @@
 """
-Glueco SDK for Python
+Cookey SDK for Python — PoP (Ed25519) signing for long-lived grants.
 
-A minimal transport + signing layer for the Glueco Gateway.
-Uses GLUECO_PRIVATE_KEY from environment for PoP (Proof-of-Possession) signing.
+Bearer-token users need NO SDK: a ck_ token works with any HTTP client or
+the unmodified openai package pointed at {gateway}/r/llm/<provider>/v1.
 
 This SDK:
-- Parses pairing strings and initiates connection
-- Signs requests using env-based Ed25519 key
-- Provides transport for plugins
-
-The app only needs to persist: app_id, proxy_url
+- Submits grant documents (docs/GRANT_SPEC.md) with a pairing string
+- Signs requests with the env-based Ed25519 key (GLUECO_PRIVATE_KEY)
+- Provides a small httpx transport for signed requests
 
 Quick Start:
     >>> import os
     >>> os.environ["GLUECO_PRIVATE_KEY"] = "base64-32-byte-seed..."
-    >>> 
-    >>> from glueco_sdk import connect, handle_callback, create_transport
-    >>> 
-    >>> # 1. Connect (SDK uses env key, sends public key to proxy)
-    >>> result = connect(
+    >>>
+    >>> from glueco_sdk import submit_grant, create_transport
+    >>>
+    >>> # 1. Submit a grant document (public key auto-derived for pop auth)
+    >>> result = submit_grant(
     ...     pairing_string="pair::https://gw.example.com::abc123",
-    ...     app_name="My App",
-    ...     requested_permissions=[...],
-    ...     redirect_uri="https://myapp.com/callback",
+    ...     grant={
+    ...         "specVersion": "1",
+    ...         "app": {"name": "My App"},
+    ...         "runtime": "server",
+    ...         "auth": "pop",
+    ...         "requests": [{"resource": "llm:*", "actions": ["chat.completions"],
+    ...                       "reason": "Core chat features."}],
+    ...         "duration": "90d",
+    ...     },
     ... )
-    >>> # Redirect user to result["approval_url"]
-    >>> 
-    >>> # 2. Handle callback - persist app_id and proxy_url
-    >>> callback = handle_callback(status, app_id)
-    >>> my_db.save(app_id=callback["app_id"], proxy_url=result["proxy_url"])
-    >>> 
-    >>> # 3. Create transport for API calls
-    >>> transport = create_transport(proxy_url, app_id)
-    >>> 
-    >>> # 4. Use with plugins
-    >>> from glueco_plugin_llm import llm_client
-    >>> llm = llm_client(transport)
-    >>> response = llm.chat_completions(provider="groq", model="llama3", ...)
+    >>> # Owner approves at result["approval_url"]; poll
+    >>> # {proxy_url}/api/connect/status?session={result["grant_id"]}
+    >>>
+    >>> # 2. Signed requests after approval
+    >>> transport = create_transport(result["proxy_url"], app_id)
+    >>> response = transport.request("llm:groq", "chat.completions", {...})
 """
 
-__version__ = "0.4.0"
+__version__ = "1.0.0"
 
 # Transport creation (main entry point)
 from .client import create_transport
@@ -62,8 +59,7 @@ from .errors import (
 from .connect import (
     parse_pairing_string,
     create_pairing_string,
-    connect,
-    handle_callback,
+    submit_grant,
     PairingInfo,
 )
 
@@ -100,8 +96,7 @@ __all__ = [
     # Connection
     "parse_pairing_string",
     "create_pairing_string",
-    "connect",
-    "handle_callback",
+    "submit_grant",
     "PairingInfo",
     # Keys
     "load_seed_from_env",

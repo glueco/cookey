@@ -131,9 +131,9 @@ model ResourcePermission {
   appId String
   app   App    @relation(fields: [appId], references: [id], onDelete: Cascade)
 
-  // Owning grant (null only for legacy rows created before the grant model)
-  grantId String?
-  grant   Grant?  @relation(fields: [grantId], references: [id], onDelete: SetNull)
+  // Owning grant — every permission row belongs to exactly one Grant
+  grantId String
+  grant   Grant  @relation(fields: [grantId], references: [id], onDelete: Cascade)
 
   // Resource and action (e.g., "llm:groq", "chat.completions")
   // resourceId format: <resourceType>:<provider>

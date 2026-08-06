@@ -10,7 +10,7 @@ ADD COLUMN     "costEstimate" DOUBLE PRECISION,
 ADD COLUMN     "grantId" TEXT;
 
 -- AlterTable
-ALTER TABLE "ResourcePermission" ADD COLUMN     "grantId" TEXT;
+ALTER TABLE "ResourcePermission" ADD COLUMN     "grantId" TEXT NOT NULL;
 
 -- CreateTable
 CREATE TABLE "Grant" (
@@ -144,7 +144,7 @@ CREATE INDEX "RequestLog_grantId_timestamp_idx" ON "RequestLog"("grantId", "time
 CREATE INDEX "ResourcePermission_grantId_idx" ON "ResourcePermission"("grantId");
 
 -- AddForeignKey
-ALTER TABLE "ResourcePermission" ADD CONSTRAINT "ResourcePermission_grantId_fkey" FOREIGN KEY ("grantId") REFERENCES "Grant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "ResourcePermission" ADD CONSTRAINT "ResourcePermission_grantId_fkey" FOREIGN KEY ("grantId") REFERENCES "Grant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Grant" ADD CONSTRAINT "Grant_appId_fkey" FOREIGN KEY ("appId") REFERENCES "App"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -154,55 +154,3 @@ ALTER TABLE "GrantToken" ADD CONSTRAINT "GrantToken_grantId_fkey" FOREIGN KEY ("
 
 -- AddForeignKey
 ALTER TABLE "ClaimCode" ADD CONSTRAINT "ClaimCode_grantId_fkey" FOREIGN KEY ("grantId") REFERENCES "Grant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ============================================
--- BACKFILL: synthesize a Grant for every pre-existing App so legacy PoP apps
--- keep working against the grant-aware pipeline. Documents are marked
--- {legacy: true} and reconstruct the requests list from granted permissions.
--- ============================================
-INSERT INTO "Grant" ("id", "appId", "document", "status", "authType", "runtime", "approvedAt", "createdAt", "updatedAt")
-SELECT
-  'grantlegacy' || md5(a."id"),
-  a."id",
-  jsonb_build_object(
-    'legacy', true,
-    'specVersion', '1',
-    'app', jsonb_strip_nulls(jsonb_build_object(
-      'name', a."name",
-      'description', a."description",
-      'homepage', a."homepage"
-    )),
-    'auth', 'pop',
-    'runtime', 'server',
-    'requests', COALESCE((
-      SELECT jsonb_agg(jsonb_build_object(
-        'resource', r."resourceId",
-        'actions', r."actions",
-        'reason', 'Reconstructed from a pre-grant permission.'
-      ))
-      FROM (
-        SELECT p."resourceId", jsonb_agg(p."action") AS "actions"
-        FROM "ResourcePermission" p
-        WHERE p."appId" = a."id"
-        GROUP BY p."resourceId"
-      ) r
-    ), '[]'::jsonb)
-  ),
-  CASE a."status"
-    WHEN 'ACTIVE' THEN 'ACTIVE'::"GrantStatus"
-    WHEN 'PENDING' THEN 'PENDING'::"GrantStatus"
-    WHEN 'SUSPENDED' THEN 'SUSPENDED_MANUAL'::"GrantStatus"
-    WHEN 'REVOKED' THEN 'REVOKED'::"GrantStatus"
-  END,
-  'POP'::"GrantAuth",
-  'server',
-  CASE WHEN a."status" = 'ACTIVE' THEN a."createdAt" END,
-  a."createdAt",
-  NOW()
-FROM "App" a
-WHERE NOT EXISTS (SELECT 1 FROM "Grant" g WHERE g."appId" = a."id");
-
-UPDATE "ResourcePermission" p
-SET "grantId" = g."id"
-FROM "Grant" g
-WHERE g."appId" = p."appId" AND p."grantId" IS NULL;

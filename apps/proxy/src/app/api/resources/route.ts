@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listEnabledConnectors } from "@/server/connectors/registry";
 import { prisma } from "@/lib/db";
-import type { ResourcesDiscoveryResponse } from "@glueco/shared";
+import type { ResourcesDiscoveryResponse } from "@/shared";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
 // ============================================

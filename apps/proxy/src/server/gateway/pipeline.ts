@@ -20,7 +20,7 @@ import { UpstreamError, type AdapterResult } from "@/server/adapters";
 import { checkPermissionValidity } from "./access-policy";
 import { RequestDecision } from "@prisma/client";
 import type { Grant, GrantAuth, ResourcePermission } from "@prisma/client";
-import { ErrorCode, getErrorStatus } from "@glueco/shared";
+import { ErrorCode, getErrorStatus } from "@/shared";
 import { logger, generateRequestId, createRequestLogger } from "@/lib/logger";
 
 // ============================================
@@ -68,6 +68,8 @@ export interface GatewayResult {
       totalTokens?: number;
     };
     costEstimate?: number;
+    /** clampMax capped a request field (surfaced as x-cookey-clamped) */
+    clamped?: boolean;
   };
 }
 
@@ -175,13 +177,13 @@ export async function processGatewayRequest(
     }
 
     // ============================================
-    // STAGE 5: Permission Lookup (grantId, appId fallback for legacy rows)
+    // STAGE 5: Permission Lookup (grantId + resourceId + action only)
     // ============================================
     const permission = await prisma.resourcePermission.findFirst({
       where: {
+        grantId: grant.id,
         resourceId: gatewayRequest.resourceId,
         action: gatewayRequest.action,
-        OR: [{ grantId: grant.id }, { appId: grant.appId, grantId: null }],
       },
     });
 
@@ -389,6 +391,7 @@ export async function processGatewayRequest(
     }
 
     const shapedInput = enforcementResult.body;
+    const wasClamped = enforcementResult.clamped;
     const requestedModel =
       shapedInput && typeof shapedInput === "object"
         ? ((shapedInput as { model?: string }).model ?? undefined)
@@ -558,6 +561,7 @@ export async function processGatewayRequest(
           ...baseMetadata,
           model: modelUsed,
           latencyMs,
+          ...(wasClamped && { clamped: true }),
           usage: usage.totalTokens !== undefined || usage.inputTokens !== undefined
             ? {
                 inputTokens: usage.inputTokens,

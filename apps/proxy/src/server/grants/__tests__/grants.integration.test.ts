@@ -130,6 +130,8 @@ describe.skipIf(!hasDb)("Grant lifecycle", () => {
       where: { grantId: grant.id },
     });
     expect(after!.firstUsedAt).not.toBeNull();
+    expect(after!.encryptedToken).toBeNull();
+    expect(after!.tokenIv).toBeNull();
     expect(tokens.getDisplayableToken(after!)).toBeNull();
   });
 
@@ -149,6 +151,29 @@ describe.skipIf(!hasDb)("Grant lifecycle", () => {
       where: { type: "claim_reuse", payload: { path: ["grantId"], equals: grant.id } },
     });
     expect(notification).not.toBeNull();
+  });
+
+  it("successful claim wipes the encrypted token copy (Addendum A #2)", async () => {
+    const { grant, token } = await makeApprovedGrant();
+    const code = await claimCodes.createClaimCode(grant.id);
+
+    const before = await prisma.grantToken.findFirst({
+      where: { grantId: grant.id },
+    });
+    expect(tokens.getDisplayableToken(before!)).toBe(token);
+
+    const claimed = await claimCodes.exchangeClaimCode(code);
+    expect(claimed.ok).toBe(true);
+
+    const after = await prisma.grantToken.findFirst({
+      where: { grantId: grant.id },
+    });
+    expect(after!.encryptedToken).toBeNull();
+    expect(after!.tokenIv).toBeNull();
+    expect(tokens.getDisplayableToken(after!)).toBeNull();
+    // The token itself keeps working — only the display copy is gone
+    const auth = await bearer.authenticateBearer(token!, null);
+    expect(auth.success).toBe(true);
   });
 
   it("sweep expires grants past expiry and past period end", async () => {

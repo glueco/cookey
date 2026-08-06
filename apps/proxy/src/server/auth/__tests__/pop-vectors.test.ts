@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import path from "path";
-import { buildCanonicalRequestV1 } from "@glueco/shared";
+import { buildCanonicalRequestV1 } from "@/shared";
 import { hashBody, verifySignatureWithCanonical } from "@/lib/crypto";
 
 // ============================================

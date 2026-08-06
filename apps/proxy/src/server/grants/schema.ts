@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   DURATION_PRESETS,
   type DurationPresetId,
-} from "@glueco/shared";
+} from "@/shared";
 
 // ============================================
 // GRANT DOCUMENT SCHEMA (specVersion 1)
@@ -97,8 +97,6 @@ export const GrantDocumentSchema = z
     renewal: z.object({ period: DurationStringSchema }).optional(),
     budget: GrantBudgetSchema.optional(),
     redirectUri: z.string().url().optional(),
-    /** Set on documents synthesized from pre-grant apps / legacy prepare calls */
-    legacy: z.boolean().optional(),
   })
   .superRefine((doc, ctx) => {
     const major = doc.specVersion.split(".")[0];

@@ -21,13 +21,23 @@ describe.skipIf(!hasDb)("Postgres-backed limits", () => {
     budget = await import("../budget");
     prisma = (await import("@/lib/db")).prisma;
 
-    // A permission to hang usage counters off
+    // A permission (owned by a grant) to hang usage counters off
     const app = await prisma.app.create({
       data: { name: `limits-test-${Date.now()}` },
+    });
+    const grant = await prisma.grant.create({
+      data: {
+        appId: app.id,
+        document: { app: { name: app.name } },
+        status: "ACTIVE",
+        authType: "BEARER",
+        runtime: "server",
+      },
     });
     const permission = await prisma.resourcePermission.create({
       data: {
         appId: app.id,
+        grantId: grant.id,
         resourceId: "llm:testprov",
         action: "chat.completions",
         dailyQuota: 3,

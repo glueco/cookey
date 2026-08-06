@@ -14,7 +14,7 @@ Auth: `Authorization: Bearer ck_…` **or** PoP headers
 | `GET /v1/grant` | The resolved contract: resources, actions, effective model lists, constraints, remaining budgets. |
 | `POST /v1/token/claim` | `{ code }` → `{ token, grantId, expiresAt }`. Single-use; reuse → 410 + owner notification. IP rate-limited. |
 | `GET /api/resources` | Public discovery of configured, enabled connectors. |
-| `POST /api/connect/prepare` | `{ connectCode, grant }` → `{ grantId, sessionToken, approvalUrl, expiresAt }`. Legacy flat-permission format still accepted (deprecated). |
+| `POST /api/connect/prepare` | `{ connectCode, grant }` → `{ grantId, sessionToken, approvalUrl, expiresAt }`. Only the grant document format is accepted; anything else gets a clear 400. |
 | `GET /api/connect/status?session={grantId}` | `pending` \| `approved` (+`appId`, `gatewayUrl`) \| `rejected` \| `expired`. |
 | `POST /api/connect/rotate` | PoP credential rotation (signed with the old key). |
 | `GET /api/app/status` | PoP-authed self-status incl. grant state. |
@@ -41,7 +41,7 @@ Auth: `Authorization: Bearer ck_…` **or** PoP headers
 | `GET /api/admin/logs` | RequestLog with `grantId/connectorId/decision/since/until/page` filters. |
 | `POST /api/admin/pairing/generate` | Single-use pairing string (10-min TTL). |
 | `GET/POST/DELETE /api/admin/resources` | Provider credentials (envelope-encrypted). |
-| `GET/PATCH/PUT/DELETE /api/admin/apps` | Legacy app/permission management. |
+| `GET/PATCH/PUT/DELETE /api/admin/apps` | Direct app/permission management (grants are the primary surface). |
 | `POST /api/admin/sweep` | Run the housekeeping sweep now. |
 
 ## Cron (Vercel, `Authorization: Bearer ${CRON_SECRET}`)

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { RequestedDurationSchema } from "./duration-presets";
 
 // ============================================
 // SHARED SCHEMAS
@@ -94,42 +93,6 @@ export const ChatCompletionRequestSchema = z.object({
 
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
-
-/**
- * Permission request schema.
- * Includes optional requested duration for apps to suggest their needs.
- */
-export const PermissionRequestSchema = z.object({
-  resourceId: z.string().regex(/^[a-z]+:[a-z0-9-]+$/, {
-    message: "Invalid resource ID format. Expected: <resourceType>:<provider>",
-  }),
-  actions: z.array(z.string()).min(1),
-  constraints: z.record(z.unknown()).optional(),
-  /** Optional: App's requested/preferred duration for this permission */
-  requestedDuration: RequestedDurationSchema.optional(),
-});
-
-/**
- * App metadata schema.
- */
-export const AppMetadataSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(500).optional(),
-  homepage: z.string().url().optional(),
-});
-
-/**
- * Install request schema (for prepare endpoint).
- */
-export const InstallRequestSchema = z.object({
-  connectCode: z.string().min(16),
-  app: AppMetadataSchema,
-  publicKey: z.string().min(40),
-  requestedPermissions: z.array(PermissionRequestSchema).min(1),
-  redirectUri: z.string().url(),
-});
-
-export type InstallRequest = z.infer<typeof InstallRequestSchema>;
 
 // ============================================
 // DISCOVERY SCHEMAS

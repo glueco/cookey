@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { authenticateRequest, getAuthErrorStatus } from "@/server/auth/pop";
-import { createErrorResponse, ErrorCode } from "@glueco/shared";
+import { createErrorResponse, ErrorCode } from "@/shared";
 import { CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
 // ============================================

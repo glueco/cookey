@@ -7,7 +7,7 @@ import {
   ErrorCode,
   getErrorStatus,
   createResourceId,
-} from "@glueco/shared";
+} from "@/shared";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
 // ============================================
@@ -210,6 +210,11 @@ async function handle(request: NextRequest, { params }: RouteParams) {
     );
   }
 
+  // clampMax silently caps values; the header makes it observable (4.3)
+  const clampHeader: Record<string, string> = result.metadata?.clamped
+    ? { "x-cookey-clamped": "true" }
+    : {};
+
   // Streaming (or non-JSON passthrough) response
   if (result.result!.stream) {
     return new Response(result.result!.stream, {
@@ -217,6 +222,7 @@ async function handle(request: NextRequest, { params }: RouteParams) {
         "Content-Type": result.result!.contentType,
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+        ...clampHeader,
         ...CORS_HEADERS,
       },
     });
@@ -225,6 +231,7 @@ async function handle(request: NextRequest, { params }: RouteParams) {
   return NextResponse.json(result.result!.response, {
     headers: {
       "Content-Type": "application/json",
+      ...clampHeader,
       ...CORS_HEADERS,
     },
   });

@@ -29,7 +29,6 @@ Open [http://localhost:3001](http://localhost:3001) in your browser.
 | Package | Purpose |
 |---------|---------|
 | `@glueco/sdk` | Gateway client, transport, PoP signing |
-| `@glueco/shared` | Shared types and utilities |
 | `@glueco/plugin-llm-gemini` | Gemini LLM integration |
 | `@glueco/plugin-llm-groq` | Groq LLM integration |
 | `@glueco/plugin-llm-openai` | OpenAI LLM integration |

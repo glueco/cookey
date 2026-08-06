@@ -27,16 +27,29 @@ export async function POST(request: NextRequest) {
     // Get public key from server-side private key
     const publicKey = await getPublicKey();
 
-    // Prepare request payload for proxy
+    // Build the grant document (docs/GRANT_SPEC.md) for the gateway
     const preparePayload = {
       connectCode,
-      app: app || {
-        name: "Demo Target App",
-        description: "Reference implementation for PRG integration",
+      grant: {
+        specVersion: "1",
+        app: app || {
+          name: "Demo Target App",
+          description: "Reference implementation for Cookey integration",
+        },
+        runtime: "server",
+        auth: "pop",
+        publicKey,
+        requests: (requestedPermissions || []).map(
+          (perm: { resourceId: string; actions: string[] }) => ({
+            resource: perm.resourceId,
+            actions: perm.actions,
+            reason: "Demo playground request from the reference app.",
+          }),
+        ),
+        duration: "24h",
+        budget: { dailyRequests: 100 },
+        redirectUri: redirectUri || `${request.nextUrl.origin}/`,
       },
-      publicKey,
-      requestedPermissions: requestedPermissions || [],
-      redirectUri: redirectUri || `${request.nextUrl.origin}/`,
     };
 
     // Call proxy prepare endpoint

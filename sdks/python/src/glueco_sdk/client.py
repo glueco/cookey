@@ -13,9 +13,8 @@ Example:
     ...     app_id="app_abc123",
     ... )
     >>> 
-    >>> # Use with plugins
-    >>> from glueco_plugin_llm import llm_client
-    >>> llm = llm_client(transport)
+    >>> response = transport.request("llm:groq", "chat.completions", {...})
+    >>> # transport.request("llm:groq", "chat.completions", {...})
     >>> response = llm.chat_completions(provider="groq", model="llama3", ...)
 """
 
@@ -49,7 +48,7 @@ def create_transport(
         timeout: Default request timeout in seconds.
         
     Returns:
-        GatewayTransport for use with plugin clients.
+        GatewayTransport for making signed requests.
         
     Raises:
         KeyError: If GLUECO_PRIVATE_KEY env var is missing or invalid.

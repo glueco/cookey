@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Adapter, AdapterContext } from "./types";
 import type { ActionSpec } from "@/server/connectors/schema";
-import type { ChatCompletionRequest } from "@glueco/shared";
+import type { ChatCompletionRequest } from "@/shared";
 
 // ============================================
 // anthropic-messages ADAPTER

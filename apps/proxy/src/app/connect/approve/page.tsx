@@ -115,11 +115,6 @@ export default async function ApprovePage({ searchParams }: PageProps) {
               <span className="px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
                 runtime: {document.runtime}
               </span>
-              {document.legacy && (
-                <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                  legacy request
-                </span>
-              )}
             </div>
           </div>
 

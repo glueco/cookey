@@ -80,10 +80,18 @@ export async function exchangeClaimCode(
     };
   }
 
-  await prisma.claimCode.update({
-    where: { id: row.id },
-    data: { usedAt: new Date() },
-  });
+  await prisma.$transaction([
+    prisma.claimCode.update({
+      where: { id: row.id },
+      data: { usedAt: new Date() },
+    }),
+    // Successful claim closes the copy-paste window (Addendum A #2):
+    // the app now holds the token, so the encrypted copy is wiped
+    prisma.grantToken.update({
+      where: { id: activeToken!.id },
+      data: { encryptedToken: null, tokenIv: null },
+    }),
+  ]);
 
   return { ok: true, token, grant: row.grant };
 }

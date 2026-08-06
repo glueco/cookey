@@ -42,8 +42,9 @@ The signature is Ed25519 over the UTF-8 bytes of that string.
 
 ## Server-side verification
 
-1. Headers present; `x-pop-v` must be `1` (missing = legacy v0: same
-   canonical but pathname without query).
+1. Headers present; `x-pop-v` must be exactly `1` — anything else
+   (including a missing header) is rejected with
+   `ERR_UNSUPPORTED_POP_VERSION`.
 2. Timestamp within ±90 seconds.
 3. Nonce unique — enforced by unique insert into Postgres (`PopNonce`,
    TTL = 2× the timestamp window); a duplicate is a replay → 401

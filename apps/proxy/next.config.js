@@ -1,15 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: [
-    "@glueco/shared",
-    // Plugin packages (workspace packages need transpilation)
-    "@glueco/plugin-llm-groq",
-    "@glueco/plugin-llm-gemini",
-    "@glueco/plugin-llm-openai",
-    "@glueco/plugin-mail-resend",
-    "@glueco/plugin-template",
-  ],
   experimental: {
     serverComponentsExternalPackages: ["@noble/ed25519", "@noble/hashes"],
   },
@@ -29,7 +20,7 @@ const nextConfig = {
         ],
       },
       {
-        // Legacy v1 path (deprecated)
+        // App-facing runtime endpoints (/v1/grant, /v1/token/claim)
         source: "/v1/:path*",
         headers: [
           { key: "Access-Control-Allow-Origin", value: "*" },

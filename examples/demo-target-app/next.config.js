@@ -1,13 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: [
-    '@glueco/sdk',
-    '@glueco/shared',
-    '@glueco/plugin-llm-gemini',
-    '@glueco/plugin-llm-groq',
-    '@glueco/plugin-llm-openai',
-    '@glueco/plugin-mail-resend',
-  ],
+  transpilePackages: ['@glueco/sdk'],
   webpack: (config, { isServer }) => {
     // Stub out fs/promises for browser bundles
     // The SDK imports FileKeyStorage which uses fs, but we use browser storage

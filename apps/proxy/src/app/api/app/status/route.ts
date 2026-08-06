@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 import { authenticateRequest, getAuthErrorStatus } from "@/server/auth/pop";
-import { createErrorResponse, ErrorCode } from "@glueco/shared";
+import { createErrorResponse, ErrorCode } from "@/shared";
 import { listEnabledConnectors, resolveConnector } from "@/server/connectors/registry";
 import type { PermissionStatus } from "@prisma/client";
 

@@ -1,8 +1,7 @@
-import { GatewayErrorResponseSchema } from "@glueco/shared";
-
 // ============================================
 // SDK ERROR TYPES
-// Client-side error handling for gateway responses
+// Client-side error handling for gateway responses.
+// Zero dependencies — the error envelope is checked structurally.
 // ============================================
 
 /**
@@ -56,23 +55,28 @@ export class GatewayError extends Error {
 
 /**
  * Parse a gateway error response and create a GatewayError.
- * Returns null if the response doesn't match the expected schema.
+ * Returns null if the response doesn't match the expected
+ * { error: { code, message, requestId?, details? } } envelope.
  */
 export function parseGatewayError(
   body: unknown,
   status: number,
 ): GatewayError | null {
-  const parsed = GatewayErrorResponseSchema.safeParse(body);
+  if (typeof body !== "object" || body === null) return null;
+  const error = (body as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) return null;
 
-  if (!parsed.success) {
-    return null;
-  }
+  const { code, message, requestId, details } = error as {
+    code?: unknown;
+    message?: unknown;
+    requestId?: unknown;
+    details?: unknown;
+  };
+  if (typeof code !== "string" || typeof message !== "string") return null;
 
-  const { error } = parsed.data;
-
-  return new GatewayError(error.code, error.message, status, {
-    requestId: error.requestId,
-    details: error.details,
+  return new GatewayError(code, message, status, {
+    requestId: typeof requestId === "string" ? requestId : undefined,
+    details,
   });
 }
 

@@ -9,7 +9,6 @@
   "updateInternalDependencies": "patch",
   "ignore": [
     "@glueco/proxy",
-    "@glueco/demo-target-app",
-    "@glueco/shared"
+    "@glueco/demo-target-app"
   ]
 }
