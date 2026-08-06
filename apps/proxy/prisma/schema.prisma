@@ -30,7 +30,8 @@ model App {
   limits         AppLimit[]
   requestLogs    RequestLog[]
   installSession InstallSession?
-  
+  grant          Grant?
+
   @@index([status])
 }
 
@@ -162,10 +163,14 @@ enum ResourceStatus {
 
 model ResourcePermission {
   id            String   @id @default(cuid())
-  
+
   appId         String
   app           App      @relation(fields: [appId], references: [id], onDelete: Cascade)
-  
+
+  // Owning grant (null only for legacy rows created before the grant model)
+  grantId       String?
+  grant         Grant?   @relation(fields: [grantId], references: [id], onDelete: SetNull)
+
   // Resource and action (e.g., "llm:groq", "chat.completions")
   // resourceId format: <resourceType>:<provider>
   resourceId    String
@@ -233,6 +238,7 @@ model ResourcePermission {
   
   @@unique([appId, resourceId, action])
   @@index([appId, status])
+  @@index([grantId])
   @@index([resourceId, action])
   @@index([expiresAt])
 }
@@ -320,7 +326,11 @@ model RequestLog {
   
   appId         String?
   app           App?     @relation(fields: [appId], references: [id], onDelete: SetNull)
-  
+
+  // Owning grant + connector that served the request (post-grant-migration rows)
+  grantId       String?
+  connectorId   String?
+
   // Request details
   resourceId    String
   action        String
@@ -336,11 +346,15 @@ model RequestLog {
   
   // Resource-specific metadata (e.g., tokens used)
   metadata      Json?    // { inputTokens: 100, outputTokens: 50 }
-  
+
+  // Estimated cost in USD (computed from connector pricing when available)
+  costEstimate  Float?
+
   // Timing
   timestamp     DateTime @default(now())
-  
+
   @@index([appId, timestamp])
+  @@index([grantId, timestamp])
   @@index([resourceId, action, timestamp])
   @@index([decision, timestamp])
 }
@@ -353,4 +367,151 @@ enum RequestDecision {
   DENIED_BUDGET
   DENIED_CONSTRAINT
   ERROR
+}
+
+// ============================================
+// GRANTS (app access contracts)
+// ============================================
+
+model Grant {
+  id            String      @id @default(cuid())
+
+  // 1:1 with App — App remains the identity anchor for PoP credentials
+  appId         String      @unique
+  app           App         @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  // The FROZEN grant JSON exactly as submitted by the app author
+  document      Json
+
+  // Owner's approval decisions (wildcard bindings, overrides)
+  decisions     Json?
+
+  status        GrantStatus @default(PENDING)
+  authType      GrantAuth
+  runtime       String      // "server" | "serverless" | "cli" | "browser"
+  sourceUrl     String?     // well-known URL if discovered that way
+
+  expiresAt     DateTime?
+  renewalPeriodDays     Int?
+  currentPeriodEnd      DateTime?
+  inactivitySuspendDays Int?
+
+  allowBrowser  Boolean     @default(false)
+  egressIps     String?     // newline/comma list: exact IPs, wildcards, CIDR
+
+  lastUsedAt    DateTime?
+  lastUsedIp    String?
+  approvedAt    DateTime?
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  tokens        GrantToken[]
+  claimCodes    ClaimCode[]
+  permissions   ResourcePermission[]
+
+  @@index([status, expiresAt])
+  @@index([status, currentPeriodEnd])
+}
+
+enum GrantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED_INACTIVITY
+  SUSPENDED_ANOMALY
+  SUSPENDED_MANUAL
+  EXPIRED
+  REVOKED
+  DENIED
+}
+
+enum GrantAuth {
+  BEARER
+  POP
+}
+
+model GrantToken {
+  id            String    @id @default(cuid())
+
+  grantId       String
+  grant         Grant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+
+  // SHA-256 hex of the full token; the token itself is never stored
+  tokenHash     String    @unique
+
+  // First 12 chars ("ck_a1B2c3d4e") — plaintext, for UI identification only
+  displayPrefix String
+
+  expiresAt     DateTime
+  revokedAt     DateTime?
+
+  // Gates the "still displayable" copy-paste window
+  firstUsedAt   DateTime?
+  lastUsedAt    DateTime?
+  lastUsedIp    String?
+
+  createdAt     DateTime  @default(now())
+
+  @@index([grantId])
+}
+
+model ClaimCode {
+  id        String    @id @default(cuid())
+
+  codeHash  String    @unique
+  grantId   String
+  grant     Grant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+// ============================================
+// POSTGRES-BACKED COUNTERS (replace Redis)
+// ============================================
+
+// PoP nonce replay protection: insert-or-conflict = replay detected
+model PopNonce {
+  nonce     String   @id
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+// Fixed-window rate limiting
+model RateCounter {
+  key         String   // e.g. "rl:{grantId}:{resourceId}:{action}"
+  windowStart DateTime // floored to window
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+}
+
+// ============================================
+// OWNER PRESETS & NOTIFICATIONS
+// ============================================
+
+model GrantTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  values      Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  type      String    // "renewal_due" | "inactivity_suspend" | "claim_reuse" |
+                      // "digest" | "connector_update" | "anomaly"
+  title     String
+  body      String
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([readAt, createdAt])
 }

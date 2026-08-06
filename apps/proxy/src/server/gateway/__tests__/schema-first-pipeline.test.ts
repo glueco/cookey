@@ -2,11 +2,8 @@
 // SCHEMA-FIRST PIPELINE TESTS
 // Validates the new enforcement invariants
 // ============================================
-//
-// Run with: npx tsx --test src/server/gateway/__tests__/schema-first-pipeline.test.ts
-// Or: node --import tsx --test src/server/gateway/__tests__/schema-first-pipeline.test.ts
 
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert";
 
 import {

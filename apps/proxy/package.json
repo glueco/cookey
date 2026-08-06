@@ -8,28 +8,30 @@
     "build": "prisma generate && prisma db push && next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
   },
   "dependencies": {
-    "@glueco/shared": "*",
-    "@glueco/plugin-llm-groq": "*",
-    "@glueco/plugin-llm-gemini": "*",
-    "@glueco/plugin-llm-openai": "*",
     "@glueco/plugin-llm-anthropic": "*",
+    "@glueco/plugin-llm-gemini": "*",
+    "@glueco/plugin-llm-groq": "*",
+    "@glueco/plugin-llm-openai": "*",
     "@glueco/plugin-mail-resend": "*",
+    "@glueco/shared": "*",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.3.3",
     "@prisma/client": "^5.10.0",
     "@upstash/redis": "^1.28.0",
+    "eventsource-parser": "^1.1.2",
+    "nanoid": "^5.0.5",
     "next": "^14.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@noble/ed25519": "^2.1.0",
-    "@noble/hashes": "^1.3.3",
-    "zod": "^3.22.4",
-    "nanoid": "^5.0.5",
-    "eventsource-parser": "^1.1.2"
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -41,6 +43,7 @@
     "postcss": "^8.4.35",
     "prisma": "^5.10.0",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
   }
 }
