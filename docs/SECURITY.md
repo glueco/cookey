@@ -40,7 +40,8 @@ promises are theater; gateway-side enforcement is not.
    `ck_` prefix with GitHub secret scanning is tracked as a follow-up; until
    then leaked tokens are still greppable.
 6. **Replay protection.** PoP nonces are unique-inserted into Postgres with
-   a TTL of 2× the timestamp window and swept hourly.
+   a TTL of 2× the timestamp window; expired rows are pruned by the sweep
+   (TTLs are enforced at read time — the sweep is only cleanup).
 7. **Browser blocking.** Requests bearing an `Origin` header or
    `Sec-Fetch-Site: cross-site` are rejected on the data plane and
    `/v1/grant` unless the grant explicitly allows browsers.

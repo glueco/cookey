@@ -3,7 +3,9 @@ import { runSweep } from "@/server/cron/sweep";
 import { logger } from "@/lib/logger";
 
 // ============================================
-// /api/cron/sweep (hourly)
+// /api/cron/sweep (daily — Vercel Hobby allows one run/day per cron;
+// expiry is also enforced inline in the pipeline, so the sweep is pure
+// housekeeping)
 // Authed by Authorization: Bearer ${CRON_SECRET}.
 // See server/cron/sweep.ts for the work list.
 // ============================================

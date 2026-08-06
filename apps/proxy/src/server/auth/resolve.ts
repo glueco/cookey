@@ -177,11 +177,29 @@ const GRANT_STATE_ERRORS: Partial<
 
 /**
  * Returns null when the grant is ACTIVE, otherwise the state-specific error.
+ * Expiry is checked inline (not just via the sweep cron, which only runs
+ * daily on Hobby deployments): a grant past its hard expiry or renewal
+ * period is dead immediately, regardless of its stored status.
  */
 export function checkGrantState(
   grant: Grant,
 ): { status: number; code: ErrorCode; message: string } | null {
-  if (grant.status === "ACTIVE") return null;
+  if (grant.status === "ACTIVE") {
+    const now = new Date();
+    const pastExpiry = grant.expiresAt !== null && grant.expiresAt < now;
+    const pastPeriod =
+      grant.currentPeriodEnd !== null && grant.currentPeriodEnd < now;
+    if (pastExpiry || pastPeriod) {
+      return {
+        status: getErrorStatus(ErrorCode.ERR_GRANT_EXPIRED),
+        code: ErrorCode.ERR_GRANT_EXPIRED,
+        message: pastExpiry
+          ? "Grant has expired"
+          : "Grant's renewal period has lapsed — the owner can renew it",
+      };
+    }
+    return null;
+  }
   const mapped = GRANT_STATE_ERRORS[grant.status] ?? {
     code: ErrorCode.ERR_PERMISSION_DENIED,
     message: `Grant is ${grant.status}`,

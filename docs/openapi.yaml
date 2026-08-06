@@ -416,7 +416,7 @@ paths:
 
   /api/cron/sweep:
     post:
-      summary: Hourly housekeeping sweep
+      summary: Daily housekeeping sweep
       security: [{ cronSecret: [] }]
       responses: { "200": { description: Per-task counters } }
 

@@ -48,6 +48,6 @@ Auth: `Authorization: Bearer ck_…` **or** PoP headers
 
 | Route | Schedule | Work |
 |---|---|---|
-| `/api/cron/sweep` | hourly | Expiry (grants/periods/permissions), inactivity suspension, renewal-due notices, anomaly flags, PopNonce/ClaimCode/ConnectCode/RateCounter pruning. |
+| `/api/cron/sweep` | daily | Expiry (grants/periods/permissions), inactivity suspension, renewal-due notices, anomaly flags, PopNonce/ClaimCode/ConnectCode/RateCounter pruning. |
 | `/api/cron/connector-updates` | daily | Records `updateAvailable` for REGISTRY/URL connectors + notification. Never auto-applies. |
 | `/api/cron/digest` | weekly | Per-grant usage digest → notification (+ email via configured mail connector). |

@@ -9,7 +9,7 @@ import {
 } from "@/server/notifications";
 
 // ============================================
-// SWEEP (shared by the hourly cron and the admin "run sweep" action)
+// SWEEP (shared by the daily cron and the admin "run sweep" action)
 // - expire grants past expiresAt / past their renewal period
 // - expire permissions past expiresAt
 // - suspend inactive grants (inactivitySuspendDays)
