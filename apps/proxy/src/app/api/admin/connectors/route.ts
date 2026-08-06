@@ -10,6 +10,7 @@ import {
   restoreBuiltins,
 } from "@/server/connectors/registry";
 import { listAdapterIds } from "@/server/adapters";
+import { getMarketplaceUrl } from "@/server/settings";
 
 // ============================================
 // /api/admin/connectors
@@ -49,7 +50,11 @@ export async function GET(request: NextRequest) {
 
 const InstallSchema = z.union([
   z.object({ url: z.string().url(), preview: z.literal(true) }),
-  z.object({ url: z.string().url(), document: z.record(z.unknown()) }),
+  z.object({
+    url: z.string().url(),
+    document: z.record(z.unknown()),
+    registry: z.boolean().optional(),
+  }),
   z.object({ document: z.record(z.unknown()) }),
   z.object({ restoreBuiltins: z.literal(true) }),
 ]);
@@ -117,8 +122,16 @@ export async function POST(request: NextRequest) {
 
     if ("url" in data) {
       // Step 2: confirm-install — freeze the EXACT document the admin
-      // reviewed (echoed back; validated again, never re-fetched)
-      const row = await installConnector(data.document, "URL", {
+      // reviewed (echoed back; validated again, never re-fetched).
+      // The REGISTRY badge is only granted when the URL really lives
+      // under the configured marketplace registry.
+      let source: "URL" | "REGISTRY" = "URL";
+      if (data.registry) {
+        const registryUrl = await getMarketplaceUrl();
+        const registryBase = registryUrl.slice(0, registryUrl.lastIndexOf("/") + 1);
+        if (data.url.startsWith(registryBase)) source = "REGISTRY";
+      }
+      const row = await installConnector(data.document, source, {
         sourceUrl: data.url,
       });
       return NextResponse.json({ connector: row });

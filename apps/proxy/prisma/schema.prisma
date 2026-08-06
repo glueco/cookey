@@ -471,3 +471,13 @@ enum ConnectorSource {
   URL
   CUSTOM
 }
+
+// ============================================
+// GATEWAY SETTINGS (key-value)
+// ============================================
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

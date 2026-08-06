@@ -5,6 +5,13 @@
   "framework": "nextjs",
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../packages/ ../../proxy.plugins.ts",
   "crons": [
-    { "path": "/api/cron/sweep", "schedule": "0 * * * *" }
+    {
+      "path": "/api/cron/sweep",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/connector-updates",
+      "schedule": "30 4 * * *"
+    }
   ]
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ConnectorReview,
   type ConnectorDocShape,
@@ -13,8 +14,10 @@ import {
 // (9.4) → confirm-install with the previewed document echoed back.
 // ============================================
 
-export default function InstallConnectorPage() {
-  const [url, setUrl] = useState("");
+function InstallConnectorInner() {
+  const searchParams = useSearchParams();
+  const fromRegistry = searchParams.get("registry") === "1";
+  const [url, setUrl] = useState(searchParams.get("url") ?? "");
   const [preview, setPreview] = useState<ConnectorDocShape | null>(null);
   const [sourceUrl, setSourceUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,7 +25,15 @@ export default function InstallConnectorPage() {
   const [details, setDetails] = useState<Array<{ path: string; message: string }>>([]);
   const [installed, setInstalled] = useState(false);
 
-  const fetchPreview = async () => {
+  useEffect(() => {
+    const presetUrl = searchParams.get("url");
+    if (presetUrl) fetchPreviewFor(presetUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchPreview = () => fetchPreviewFor(url.trim());
+
+  const fetchPreviewFor = async (targetUrl: string) => {
     setBusy(true);
     setError(null);
     setDetails([]);
@@ -30,7 +41,7 @@ export default function InstallConnectorPage() {
       const res = await fetch("/api/admin/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim(), preview: true }),
+        body: JSON.stringify({ url: targetUrl, preview: true }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -53,7 +64,11 @@ export default function InstallConnectorPage() {
       const res = await fetch("/api/admin/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sourceUrl, document: preview }),
+        body: JSON.stringify({
+          url: sourceUrl,
+          document: preview,
+          ...(fromRegistry && { registry: true }),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Install failed");
@@ -138,7 +153,7 @@ export default function InstallConnectorPage() {
 
       {preview && (
         <>
-          <ConnectorReview document={preview} trust="url" />
+          <ConnectorReview document={preview} trust={fromRegistry ? "registry" : "url"} />
           <div className="flex gap-3">
             <button
               className="btn-primary flex-1"
@@ -165,5 +180,13 @@ export default function InstallConnectorPage() {
         ← Back to connectors
       </Link>
     </main>
+  );
+}
+
+export default function InstallConnectorPage() {
+  return (
+    <Suspense>
+      <InstallConnectorInner />
+    </Suspense>
   );
 }

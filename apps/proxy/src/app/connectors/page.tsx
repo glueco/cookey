@@ -85,7 +85,10 @@ export default function ConnectorsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/connectors/install" className="btn-primary text-sm">
+          <Link href="/marketplace" className="btn-primary text-sm">
+            Marketplace
+          </Link>
+          <Link href="/connectors/install" className="btn-secondary text-sm">
             Install from URL
           </Link>
           <Link href="/connectors/new" className="btn-secondary text-sm">
