@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { listEnabledConnectors } from "@/server/connectors/registry";
 import {
   parseDurationMs,
   parseDurationDays,
@@ -82,12 +83,21 @@ export default async function ApprovePage({ searchParams }: PageProps) {
 
   const document = grant.document as unknown as GrantDocumentShape;
 
-  // Configured providers for wildcard binding
-  const secrets = await prisma.resourceSecret.findMany({
-    where: { status: "ACTIVE" },
-    select: { resourceId: true, name: true, resourceType: true },
-    orderBy: { resourceId: "asc" },
-  });
+  // Configured providers for wildcard binding + pricing for projection
+  const [secrets, connectors] = await Promise.all([
+    prisma.resourceSecret.findMany({
+      where: { status: "ACTIVE" },
+      select: { resourceId: true, name: true, resourceType: true },
+      orderBy: { resourceId: "asc" },
+    }),
+    listEnabledConnectors(),
+  ]);
+  const connectorInfo = Object.fromEntries(
+    connectors.map((connector) => [
+      connector.id,
+      { models: connector.models ?? [], pricing: connector.pricing },
+    ]),
+  );
 
   return (
     <main className="min-h-screen flex items-center justify-center p-4 sm:p-8 relative overflow-hidden">
@@ -119,6 +129,7 @@ export default async function ApprovePage({ searchParams }: PageProps) {
               grantId={grant.id}
               document={document}
               availableResources={secrets}
+              connectorInfo={connectorInfo}
               requestedDurationMs={parseDurationMs(document.duration) ?? null}
               requestedRenewalDays={
                 document.renewal

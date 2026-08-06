@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import { getSetting, SETTING_KEYS } from "@/server/settings";
 import { cleanupExpiredNonces } from "@/server/limits/nonce";
 import { cleanupStaleRateCounters } from "@/server/limits/rate-limit";
 import {
@@ -133,7 +135,69 @@ export async function runSweep() {
     })
   ).count;
 
-  // 7. Delete expired short-lived rows
+  // 7. Anomaly detection (7.3): a grant exceeding 3× its trailing-7-day
+  // daily average today gets a notification (auto-suspend is opt-in).
+  // The floor avoids flagging idle grants on their first busy day.
+  const ANOMALY_MULTIPLIER = 3;
+  const ANOMALY_MIN_AVERAGE = 10;
+  const autoSuspend = await getSetting<boolean>(
+    SETTING_KEYS.autoSuspendOnAnomaly,
+    false,
+  );
+
+  const anomalyRows = await prisma.$queryRaw<
+    Array<{ grantId: string; today: bigint; avg7: number }>
+  >(Prisma.sql`
+    SELECT
+      "grantId",
+      COUNT(*) FILTER (WHERE "timestamp" >= date_trunc('day', NOW())) AS "today",
+      COUNT(*) FILTER (
+        WHERE "timestamp" >= NOW() - interval '8 days'
+          AND "timestamp" < date_trunc('day', NOW())
+      ) / 7.0 AS "avg7"
+    FROM "RequestLog"
+    WHERE "grantId" IS NOT NULL
+      AND "timestamp" >= NOW() - interval '8 days'
+    GROUP BY "grantId"
+  `);
+
+  let anomalies = 0;
+  for (const row of anomalyRows) {
+    const today = Number(row.today);
+    const avg = Number(row.avg7);
+    if (avg < ANOMALY_MIN_AVERAGE || today <= avg * ANOMALY_MULTIPLIER) continue;
+
+    const grant = await prisma.grant.findUnique({
+      where: { id: row.grantId },
+      select: { id: true, status: true, document: true, lastUsedIp: true },
+    });
+    if (!grant || grant.status !== "ACTIVE") continue;
+
+    const name = grantAppName(grant.document);
+    const created = await createNotificationOnce(
+      "anomaly",
+      `anomaly:${grant.id}:${now.toISOString().slice(0, 10)}`,
+      `Unusual traffic from ${name}`,
+      `"${name}" made ${today} requests today — over ${ANOMALY_MULTIPLIER}× its trailing average of ${avg.toFixed(0)}/day` +
+        (grant.lastUsedIp ? ` (last IP ${grant.lastUsedIp})` : "") +
+        (autoSuspend
+          ? ". The grant was auto-suspended per your settings."
+          : ". Review the grant if this is unexpected."),
+      { grantId: grant.id },
+    );
+    if (created) {
+      anomalies++;
+      if (autoSuspend) {
+        await prisma.grant.update({
+          where: { id: grant.id },
+          data: { status: "SUSPENDED_ANOMALY" },
+        });
+      }
+    }
+  }
+  results.anomaliesFlagged = anomalies;
+
+  // 8. Delete expired short-lived rows
   results.noncesDeleted = await cleanupExpiredNonces();
   results.claimCodesDeleted = (
     await prisma.claimCode.deleteMany({ where: { expiresAt: { lt: now } } })

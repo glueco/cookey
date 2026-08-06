@@ -15,20 +15,21 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Personal Resource Gateway",
+  title: "Cookey — connect your keys safely",
   description:
-    "Self-hostable personal resource access key for safely sharing access to private capabilities",
+    "Self-hosted personal API gateway: store your API keys once, grant apps controlled, time-limited, budget-capped access — without ever handing over the keys.",
   keywords: [
     "API gateway",
-    "resource sharing",
-    "personal proxy",
+    "BYOK",
     "API key management",
+    "personal proxy",
+    "self-hosted",
   ],
-  authors: [{ name: "Personal Resource Gateway" }],
+  authors: [{ name: "Cookey" }],
   openGraph: {
-    title: "Personal Resource Gateway",
+    title: "Cookey — connect your keys safely",
     description:
-      "Safely share access to your API keys and resources with controlled permissions",
+      "Grant apps controlled, revocable access to your API keys without ever handing them over.",
     type: "website",
   },
 };
@@ -53,6 +54,14 @@ export default function RootLayout({
       className={`${inter.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
+      <head>
+        {/* Set the theme class before paint (localStorage pref, else system) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("cookey:theme");var d=t?t==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);}catch(e){}`,
+          }}
+        />
+      </head>
       <body className={`${inter.className} antialiased min-h-screen`}>
         {children}
       </body>

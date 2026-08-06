@@ -60,10 +60,6 @@ export default function ConnectorDetailPage() {
     const res = await fetch(
       `/api/admin/connectors/${encodeURIComponent(connectorId)}`,
     );
-    if (res.status === 401) {
-      window.location.href = "/dashboard";
-      return;
-    }
     if (!res.ok) {
       setError("Connector not found");
       return;

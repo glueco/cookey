@@ -37,10 +37,6 @@ export default function ConnectorsPage() {
   const load = async () => {
     try {
       const res = await fetch("/api/admin/connectors");
-      if (res.status === 401) {
-        window.location.href = "/dashboard";
-        return;
-      }
       const data = await res.json();
       setConnectors(data.connectors ?? []);
       setError(null);
@@ -93,9 +89,6 @@ export default function ConnectorsPage() {
           </Link>
           <Link href="/connectors/new" className="btn-secondary text-sm">
             Build custom
-          </Link>
-          <Link href="/dashboard" className="btn-ghost text-sm">
-            Dashboard
           </Link>
         </div>
       </div>

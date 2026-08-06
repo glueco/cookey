@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   RequestReviewCard,
   describeResource,
@@ -21,10 +21,31 @@ export interface AvailableResource {
   resourceType: string;
 }
 
+export interface ConnectorInfo {
+  models: string[];
+  pricing?: Record<string, { inputPerMTok: number; outputPerMTok: number }>;
+}
+
+interface TemplateRow {
+  id: string;
+  name: string;
+  description: string | null;
+  values: {
+    auth?: "bearer" | "pop";
+    durationMs?: number | null;
+    renewal?: { periodDays: number } | null;
+    budget?: Partial<Record<"dailyRequests" | "dailyTokens" | "monthlyRequests" | "monthlyTokens", number>>;
+    inactivitySuspendDays?: number;
+    allowBrowser?: boolean;
+  };
+}
+
 interface Props {
   grantId: string;
   document: GrantDocumentShape;
   availableResources: AvailableResource[];
+  /** Per-connector model catalogs + pricing (drives spend projection) */
+  connectorInfo: Record<string, ConnectorInfo>;
   /** ms value parsed from document.duration (null = forever) */
   requestedDurationMs: number | null;
   /** days parsed from document.renewal?.period */
@@ -45,6 +66,7 @@ export default function ApprovalForm({
   grantId,
   document: doc,
   availableResources,
+  connectorInfo,
   requestedDurationMs,
   requestedRenewalDays,
 }: Props) {
@@ -85,6 +107,65 @@ export default function ApprovalForm({
     return initial;
   });
 
+  const [templates, setTemplates] = useState<TemplateRow[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState("");
+
+  useEffect(() => {
+    // Templates are owner data; the dropdown hides when not logged in
+    fetch("/api/admin/templates")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setTemplates(data.templates ?? []))
+      .catch(() => {});
+  }, []);
+
+  const applyTemplate = (template: TemplateRow) => {
+    const v = template.values;
+    if (v.auth && (v.auth !== "pop" || popAvailable)) setAuth(v.auth);
+    if (v.durationMs !== undefined) setDurationMs(v.durationMs);
+    if (v.renewal !== undefined) {
+      setRenewable(!!v.renewal);
+      if (v.renewal) setRenewalDays(v.renewal.periodDays);
+    }
+    if (v.budget) {
+      setBudget({
+        dailyRequests: v.budget.dailyRequests?.toString() ?? "",
+        dailyTokens: v.budget.dailyTokens?.toString() ?? "",
+        monthlyRequests: v.budget.monthlyRequests?.toString() ?? "",
+        monthlyTokens: v.budget.monthlyTokens?.toString() ?? "",
+      });
+    }
+    if (v.inactivitySuspendDays !== undefined) {
+      setInactivityDays(String(v.inactivitySuspendDays));
+    }
+    if (v.allowBrowser !== undefined) setAllowBrowser(v.allowBrowser);
+  };
+
+  const saveAsTemplate = async () => {
+    const name = prompt("Template name:");
+    if (!name) return;
+    await fetch("/api/admin/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        values: {
+          auth,
+          durationMs,
+          renewal: renewable ? { periodDays: renewalDays } : null,
+          budget: Object.fromEntries(
+            Object.entries(budget)
+              .filter(([, value]) => value.trim() !== "")
+              .map(([key, value]) => [key, parseInt(value, 10)]),
+          ),
+          inactivitySuspendDays: parseInt(inactivityDays || "0", 10),
+          allowBrowser,
+        },
+      }),
+    });
+    const res = await fetch("/api/admin/templates");
+    if (res.ok) setTemplates((await res.json()).templates ?? []);
+  };
+
   const [submitting, setSubmitting] = useState<"approve" | "deny" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
@@ -113,6 +194,60 @@ export default function ApprovalForm({
       return parseInt(value, 10) > requested;
     });
   }, [budget, doc.budget]);
+
+  // ---- Spend projection (5.7): worst-case per bound LLM connector ----
+  const spendProjection = useMemo(() => {
+    const boundResources = [
+      ...new Set(
+        doc.requests.flatMap((request, index) =>
+          request.resource.endsWith(":*")
+            ? (bindings[String(index)] ?? [])
+            : [request.resource],
+        ),
+      ),
+    ].filter((id) => id.startsWith("llm:"));
+
+    const dailyTokens = parseInt(budget.dailyTokens || "0", 10) || null;
+    const dailyRequests = parseInt(budget.dailyRequests || "0", 10) || null;
+
+    const rows = boundResources.map((resourceId) => {
+      const info = connectorInfo[resourceId];
+      if (!info?.pricing || Object.keys(info.pricing).length === 0) {
+        return { resourceId, perDay: null as number | null };
+      }
+      // Allowed models = request constraints allowedModels ∩ catalog, else catalog
+      const requestConstraints = doc.requests.find((request, index) => {
+        const bound = request.resource.endsWith(":*")
+          ? (bindings[String(index)] ?? [])
+          : [request.resource];
+        return bound.includes(resourceId);
+      })?.constraints as { allowedModels?: string[]; maxOutputTokens?: number } | undefined;
+      const models =
+        requestConstraints?.allowedModels?.length
+          ? requestConstraints.allowedModels
+          : Object.keys(info.pricing);
+      const maxRate = Math.max(
+        0,
+        ...models.map((model) => info.pricing?.[model]?.outputPerMTok ?? 0),
+      );
+      if (maxRate === 0) return { resourceId, perDay: null };
+
+      let perDay: number | null = null;
+      if (dailyTokens) {
+        // Conservative bound: all tokens at the priciest output rate
+        perDay = (dailyTokens * maxRate) / 1_000_000;
+      } else if (dailyRequests) {
+        const maxOut = requestConstraints?.maxOutputTokens ?? 4096;
+        perDay = (dailyRequests * maxOut * maxRate) / 1_000_000;
+      }
+      return { resourceId, perDay };
+    });
+
+    const known = rows.filter((row) => row.perDay !== null);
+    const total = known.reduce((sum, row) => sum + (row.perDay ?? 0), 0);
+    const unbounded = !dailyTokens && !dailyRequests;
+    return { rows, total, unbounded, hasKnown: known.length > 0 };
+  }, [doc.requests, bindings, budget.dailyTokens, budget.dailyRequests, connectorInfo]);
 
   const bindingIncomplete = wildcardRequests.some(
     ({ index }) => (bindings[String(index)] ?? []).length === 0,
@@ -282,6 +417,38 @@ export default function ApprovalForm({
         </div>
       </section>
 
+      {/* Templates */}
+      {templates.length > 0 && (
+        <section className="flex items-center gap-2 flex-wrap">
+          <label className="text-sm text-slate-700 dark:text-slate-200">
+            Template:
+          </label>
+          <select
+            className="input text-sm"
+            value={selectedTemplate}
+            onChange={(e) => {
+              setSelectedTemplate(e.target.value);
+              const template = templates.find((t) => t.id === e.target.value);
+              if (template) applyTemplate(template);
+            }}
+          >
+            <option value="">— none —</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+                {template.description ? ` — ${template.description}` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            className="text-xs text-primary-600 dark:text-primary-400 underline"
+            onClick={saveAsTemplate}
+          >
+            Save current as template
+          </button>
+        </section>
+      )}
+
       {/* Auth */}
       <section>
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
@@ -424,6 +591,40 @@ export default function ApprovalForm({
             />
             These limits exceed what the app asked for — I want that.
           </label>
+        )}
+      </section>
+
+      {/* Spend projection (5.7) */}
+      <section className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">
+          Spend projection
+        </h3>
+        {spendProjection.unbounded ? (
+          <p className="text-sm text-amber-700 dark:text-amber-300 font-medium">
+            $0 possible? Verify caps — no daily budget fields are set, so
+            worst-case spend is unbounded.
+          </p>
+        ) : spendProjection.hasKnown ? (
+          <>
+            <p className="text-sm text-slate-700 dark:text-slate-200">
+              Worst case ≈ ${spendProjection.total.toFixed(2)}/day (≈ $
+              {(spendProjection.total * 30).toFixed(0)}/month) on your keys.
+            </p>
+            <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {spendProjection.rows.map((row) => (
+                <li key={row.resourceId}>
+                  {row.resourceId}:{" "}
+                  {row.perDay !== null
+                    ? `≈ $${row.perDay.toFixed(2)}/day`
+                    : "no pricing data"}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">
+            No pricing data for the bound connectors — no estimate.
+          </p>
         )}
       </section>
 

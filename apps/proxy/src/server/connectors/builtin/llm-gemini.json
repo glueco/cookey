@@ -2,7 +2,7 @@
   "specVersion": "1",
   "id": "llm:gemini",
   "name": "Google Gemini",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Gemini models via Google AI Studio, translated to the OpenAI wire shape.",
   "homepage": "https://ai.google.dev",
   "resourceType": "llm",
@@ -10,17 +10,32 @@
   "config": {
     "baseUrl": "https://generativelanguage.googleapis.com/v1beta"
   },
-  "allowedHosts": ["generativelanguage.googleapis.com"],
+  "allowedHosts": [
+    "generativelanguage.googleapis.com"
+  ],
   "actions": {
     "chat.completions": {
       "method": "POST",
       "path": "/{model}:generateContent",
       "streaming": true,
       "enforce": {
-        "model": { "rule": "allowedValues", "constraint": "allowedModels" },
-        "max_tokens": { "rule": "clampMax", "constraint": "maxOutputTokens", "default": 8192 },
-        "stream": { "rule": "allowFlag", "constraint": "allowStreaming" },
-        "tools": { "rule": "forbidField", "constraint": "allowTools" }
+        "model": {
+          "rule": "allowedValues",
+          "constraint": "allowedModels"
+        },
+        "max_tokens": {
+          "rule": "clampMax",
+          "constraint": "maxOutputTokens",
+          "default": 8192
+        },
+        "stream": {
+          "rule": "allowFlag",
+          "constraint": "allowStreaming"
+        },
+        "tools": {
+          "rule": "forbidField",
+          "constraint": "allowTools"
+        }
       },
       "usage": {
         "inputTokens": "usage.prompt_tokens",
@@ -38,8 +53,18 @@
     "gemini-2.5-flash-lite"
   ],
   "credentials": [
-    { "name": "apiKey", "type": "secret", "label": "Google AI Studio API key", "required": true },
-    { "name": "baseUrl", "type": "url", "label": "API base URL", "required": false }
+    {
+      "name": "apiKey",
+      "type": "secret",
+      "label": "Google AI Studio API key",
+      "required": true
+    },
+    {
+      "name": "baseUrl",
+      "type": "url",
+      "label": "API base URL",
+      "required": false
+    }
   ],
   "errorMap": {
     "401": "UNAUTHORIZED",
@@ -49,5 +74,27 @@
     "502": "PROVIDER_ERROR",
     "503": "PROVIDER_ERROR"
   },
-  "errorCodePath": "error.status"
+  "errorCodePath": "error.status",
+  "pricing": {
+    "gemini-3-pro": {
+      "inputPerMTok": 2.0,
+      "outputPerMTok": 12.0
+    },
+    "gemini-3-flash": {
+      "inputPerMTok": 0.5,
+      "outputPerMTok": 3.0
+    },
+    "gemini-2.5-pro": {
+      "inputPerMTok": 1.25,
+      "outputPerMTok": 10.0
+    },
+    "gemini-2.5-flash": {
+      "inputPerMTok": 0.3,
+      "outputPerMTok": 2.5
+    },
+    "gemini-2.5-flash-lite": {
+      "inputPerMTok": 0.1,
+      "outputPerMTok": 0.4
+    }
+  }
 }

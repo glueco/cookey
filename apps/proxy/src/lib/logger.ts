@@ -131,8 +131,8 @@ class Logger {
     const entry: LogEntry = {
       level,
       timestamp: new Date().toISOString(),
-      message,
-      context: { ...this.context, ...context },
+      message: redactSecrets(message),
+      context: redactContext({ ...this.context, ...context }),
     };
 
     if (isDev) {
@@ -219,6 +219,44 @@ class Logger {
         console.log(JSON.stringify(output));
     }
   }
+}
+
+// ============================================
+// SECRET REDACTION
+// Grant tokens (ck_…), pairing strings, and obvious API-key shapes must
+// never reach log output. There is a test asserting this — keep it green.
+// ============================================
+
+const SECRET_PATTERNS = [
+  /ck_[0-9A-Za-z]{10,}/g, // grant tokens
+  /pair::[^\s"']+/g, // pairing strings (embed the connect code)
+  /(sk|gsk|re|sk-or|sk-ant)[-_][0-9A-Za-z_-]{16,}/g, // common provider key shapes
+];
+
+export function redactSecrets(text: string): string {
+  let out = text;
+  for (const pattern of SECRET_PATTERNS) {
+    out = out.replace(pattern, "[REDACTED]");
+  }
+  return out;
+}
+
+function redactValue(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (Array.isArray(value)) return value.map(redactValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        redactValue(v),
+      ]),
+    );
+  }
+  return value;
+}
+
+function redactContext(context: LogContext): LogContext {
+  return redactValue(context) as LogContext;
 }
 
 // ============================================

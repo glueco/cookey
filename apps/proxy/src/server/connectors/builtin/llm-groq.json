@@ -2,26 +2,43 @@
   "specVersion": "1",
   "id": "llm:groq",
   "name": "Groq",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Fast LLM inference (Llama family) via Groq.",
   "homepage": "https://groq.com",
   "resourceType": "llm",
   "adapter": "openai-compatible",
   "config": {
     "baseUrl": "https://api.groq.com/openai/v1",
-    "auth": { "type": "bearer" }
+    "auth": {
+      "type": "bearer"
+    }
   },
-  "allowedHosts": ["api.groq.com"],
+  "allowedHosts": [
+    "api.groq.com"
+  ],
   "actions": {
     "chat.completions": {
       "method": "POST",
       "path": "/chat/completions",
       "streaming": true,
       "enforce": {
-        "model": { "rule": "allowedValues", "constraint": "allowedModels" },
-        "max_tokens": { "rule": "clampMax", "constraint": "maxOutputTokens", "default": 4096 },
-        "stream": { "rule": "allowFlag", "constraint": "allowStreaming" },
-        "tools": { "rule": "forbidField", "constraint": "allowTools" }
+        "model": {
+          "rule": "allowedValues",
+          "constraint": "allowedModels"
+        },
+        "max_tokens": {
+          "rule": "clampMax",
+          "constraint": "maxOutputTokens",
+          "default": 4096
+        },
+        "stream": {
+          "rule": "allowFlag",
+          "constraint": "allowStreaming"
+        },
+        "tools": {
+          "rule": "forbidField",
+          "constraint": "allowTools"
+        }
       },
       "usage": {
         "inputTokens": "usage.prompt_tokens",
@@ -30,12 +47,29 @@
         "model": "model"
       }
     },
-    "models.list": { "method": "GET", "path": "/models", "streaming": false }
+    "models.list": {
+      "method": "GET",
+      "path": "/models",
+      "streaming": false
+    }
   },
-  "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+  "models": [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant"
+  ],
   "credentials": [
-    { "name": "apiKey", "type": "secret", "label": "Groq API key", "required": true },
-    { "name": "baseUrl", "type": "url", "label": "API base URL", "required": false }
+    {
+      "name": "apiKey",
+      "type": "secret",
+      "label": "Groq API key",
+      "required": true
+    },
+    {
+      "name": "baseUrl",
+      "type": "url",
+      "label": "API base URL",
+      "required": false
+    }
   ],
   "errorMap": {
     "401": "UNAUTHORIZED",
@@ -44,5 +78,15 @@
     "502": "PROVIDER_ERROR",
     "503": "PROVIDER_ERROR"
   },
-  "errorCodePath": "error.code"
+  "errorCodePath": "error.code",
+  "pricing": {
+    "llama-3.3-70b-versatile": {
+      "inputPerMTok": 0.59,
+      "outputPerMTok": 0.79
+    },
+    "llama-3.1-8b-instant": {
+      "inputPerMTok": 0.05,
+      "outputPerMTok": 0.08
+    }
+  }
 }

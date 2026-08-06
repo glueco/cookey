@@ -2,27 +2,46 @@
   "specVersion": "1",
   "id": "llm:openai",
   "name": "OpenAI",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "GPT and o-series models via the OpenAI API.",
   "homepage": "https://openai.com",
   "resourceType": "llm",
   "adapter": "openai-compatible",
   "config": {
     "baseUrl": "https://api.openai.com/v1",
-    "auth": { "type": "bearer" },
-    "extraHeaders": { "OpenAI-Organization": "{credential:organization}" }
+    "auth": {
+      "type": "bearer"
+    },
+    "extraHeaders": {
+      "OpenAI-Organization": "{credential:organization}"
+    }
   },
-  "allowedHosts": ["api.openai.com"],
+  "allowedHosts": [
+    "api.openai.com"
+  ],
   "actions": {
     "chat.completions": {
       "method": "POST",
       "path": "/chat/completions",
       "streaming": true,
       "enforce": {
-        "model": { "rule": "allowedValues", "constraint": "allowedModels" },
-        "max_tokens": { "rule": "clampMax", "constraint": "maxOutputTokens", "default": 16384 },
-        "stream": { "rule": "allowFlag", "constraint": "allowStreaming" },
-        "tools": { "rule": "forbidField", "constraint": "allowTools" }
+        "model": {
+          "rule": "allowedValues",
+          "constraint": "allowedModels"
+        },
+        "max_tokens": {
+          "rule": "clampMax",
+          "constraint": "maxOutputTokens",
+          "default": 16384
+        },
+        "stream": {
+          "rule": "allowFlag",
+          "constraint": "allowStreaming"
+        },
+        "tools": {
+          "rule": "forbidField",
+          "constraint": "allowTools"
+        }
       },
       "usage": {
         "inputTokens": "usage.prompt_tokens",
@@ -31,7 +50,11 @@
         "model": "model"
       }
     },
-    "models.list": { "method": "GET", "path": "/models", "streaming": false }
+    "models.list": {
+      "method": "GET",
+      "path": "/models",
+      "streaming": false
+    }
   },
   "models": [
     "gpt-5.2",
@@ -48,9 +71,26 @@
     "o4-mini"
   ],
   "credentials": [
-    { "name": "apiKey", "type": "secret", "label": "OpenAI API key", "required": true },
-    { "name": "organization", "type": "string", "label": "Organization ID", "description": "Optional OpenAI organization ID", "required": false },
-    { "name": "baseUrl", "type": "url", "label": "API base URL", "description": "Optional, for Azure OpenAI or proxies", "required": false }
+    {
+      "name": "apiKey",
+      "type": "secret",
+      "label": "OpenAI API key",
+      "required": true
+    },
+    {
+      "name": "organization",
+      "type": "string",
+      "label": "Organization ID",
+      "description": "Optional OpenAI organization ID",
+      "required": false
+    },
+    {
+      "name": "baseUrl",
+      "type": "url",
+      "label": "API base URL",
+      "description": "Optional, for Azure OpenAI or proxies",
+      "required": false
+    }
   ],
   "errorMap": {
     "401": "UNAUTHORIZED",
@@ -60,5 +100,55 @@
     "502": "PROVIDER_ERROR",
     "503": "PROVIDER_ERROR"
   },
-  "errorCodePath": "error.code"
+  "errorCodePath": "error.code",
+  "pricing": {
+    "gpt-5.2": {
+      "inputPerMTok": 1.75,
+      "outputPerMTok": 14.0
+    },
+    "gpt-5.2-pro": {
+      "inputPerMTok": 15.0,
+      "outputPerMTok": 120.0
+    },
+    "gpt-5-mini": {
+      "inputPerMTok": 0.25,
+      "outputPerMTok": 2.0
+    },
+    "gpt-5-nano": {
+      "inputPerMTok": 0.05,
+      "outputPerMTok": 0.4
+    },
+    "gpt-4.1": {
+      "inputPerMTok": 2.0,
+      "outputPerMTok": 8.0
+    },
+    "gpt-4.1-mini": {
+      "inputPerMTok": 0.4,
+      "outputPerMTok": 1.6
+    },
+    "gpt-4.1-nano": {
+      "inputPerMTok": 0.1,
+      "outputPerMTok": 0.4
+    },
+    "gpt-4o": {
+      "inputPerMTok": 2.5,
+      "outputPerMTok": 10.0
+    },
+    "gpt-4o-mini": {
+      "inputPerMTok": 0.15,
+      "outputPerMTok": 0.6
+    },
+    "o3": {
+      "inputPerMTok": 2.0,
+      "outputPerMTok": 8.0
+    },
+    "o3-pro": {
+      "inputPerMTok": 20.0,
+      "outputPerMTok": 80.0
+    },
+    "o4-mini": {
+      "inputPerMTok": 1.1,
+      "outputPerMTok": 4.4
+    }
+  }
 }
