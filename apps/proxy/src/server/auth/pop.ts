@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { checkAndSetNonce } from "@/lib/redis";
+import { checkAndSetNonce } from "@/server/limits/nonce";
 import {
   PoPHeaders,
   hashBody,

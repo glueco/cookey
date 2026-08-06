@@ -16,28 +16,13 @@ export const DATABASE_URL =
   (isDemo() ? process.env.DEMO_DATABASE_URL : undefined) ??
   process.env.DATABASE_URL;
 
-// Redis/KV URLs - uses DEMO_ prefix on demo branch
-export const KV_REST_API_URL =
-  (isDemo() ? process.env.DEMO_KV_REST_API_URL : undefined) ??
-  process.env.KV_REST_API_URL;
-
-export const KV_REST_API_TOKEN =
-  (isDemo() ? process.env.DEMO_KV_REST_API_TOKEN : undefined) ??
-  process.env.KV_REST_API_TOKEN;
-
 // ============================================
 // CRITICAL: Override process.env for libraries that read directly
-// Prisma, Redis clients etc. read from process.env, not our exports
+// Prisma reads from process.env, not our exports
 // ============================================
 if (isDemo()) {
   if (DATABASE_URL) {
     process.env.DATABASE_URL = DATABASE_URL;
-  }
-  if (KV_REST_API_URL) {
-    process.env.KV_REST_API_URL = KV_REST_API_URL;
-  }
-  if (KV_REST_API_TOKEN) {
-    process.env.KV_REST_API_TOKEN = KV_REST_API_TOKEN;
   }
 }
 
@@ -45,18 +30,6 @@ if (isDemo()) {
 if (!DATABASE_URL) {
   throw new Error(
     "Missing DATABASE_URL (or DEMO_DATABASE_URL on demo branch)"
-  );
-}
-
-if (!KV_REST_API_URL) {
-  throw new Error(
-    "Missing KV_REST_API_URL (or DEMO_KV_REST_API_URL on demo branch)"
-  );
-}
-
-if (!KV_REST_API_TOKEN) {
-  throw new Error(
-    "Missing KV_REST_API_TOKEN (or DEMO_KV_REST_API_TOKEN on demo branch)"
   );
 }
 
@@ -83,3 +56,9 @@ if (rawGatewayUrl && rawGatewayUrl.endsWith("/")) {
 if (GATEWAY_URL) {
   process.env.GATEWAY_URL = GATEWAY_URL;
 }
+
+// ============================================
+// CRON_SECRET - authenticates Vercel cron invocations
+// Optional at boot; cron routes reject when it is unset.
+// ============================================
+export const CRON_SECRET = process.env.CRON_SECRET;

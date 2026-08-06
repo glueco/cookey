@@ -55,6 +55,26 @@ export enum ErrorCode {
   ERR_MAX_TOKENS_EXCEEDED = "ERR_MAX_TOKENS_EXCEEDED",
   ERR_TOOLS_NOT_ALLOWED = "ERR_TOOLS_NOT_ALLOWED",
   ERR_STREAMING_NOT_ALLOWED = "ERR_STREAMING_NOT_ALLOWED",
+
+  // Grant/token auth errors
+  ERR_INVALID_TOKEN = "ERR_INVALID_TOKEN",
+  ERR_TOKEN_EXPIRED = "ERR_TOKEN_EXPIRED",
+  ERR_AMBIGUOUS_AUTH = "ERR_AMBIGUOUS_AUTH",
+
+  // Grant state errors (data-plane requests against non-ACTIVE grants)
+  ERR_GRANT_PENDING = "ERR_GRANT_PENDING",
+  ERR_GRANT_SUSPENDED = "ERR_GRANT_SUSPENDED",
+  ERR_GRANT_EXPIRED = "ERR_GRANT_EXPIRED",
+  ERR_GRANT_REVOKED = "ERR_GRANT_REVOKED",
+  ERR_GRANT_DENIED = "ERR_GRANT_DENIED",
+
+  // Hardening errors
+  ERR_BROWSER_BLOCKED = "ERR_BROWSER_BLOCKED",
+  ERR_IP_BLOCKED = "ERR_IP_BLOCKED",
+
+  // Claim codes
+  ERR_INVALID_CLAIM_CODE = "ERR_INVALID_CLAIM_CODE",
+  ERR_CLAIM_CODE_USED = "ERR_CLAIM_CODE_USED",
 }
 
 /**
@@ -77,12 +97,30 @@ export function getErrorStatus(code: ErrorCode): number {
     case ErrorCode.ERR_INVALID_SIGNATURE:
     case ErrorCode.ERR_EXPIRED_TIMESTAMP:
     case ErrorCode.ERR_INVALID_NONCE:
+    case ErrorCode.ERR_INVALID_TOKEN:
+    case ErrorCode.ERR_TOKEN_EXPIRED:
       return 401;
+
+    case ErrorCode.ERR_AMBIGUOUS_AUTH:
+      return 400;
 
     case ErrorCode.ERR_PERMISSION_DENIED:
     case ErrorCode.ERR_PERMISSION_EXPIRED:
     case ErrorCode.ERR_APP_DISABLED:
+    case ErrorCode.ERR_GRANT_PENDING:
+    case ErrorCode.ERR_GRANT_SUSPENDED:
+    case ErrorCode.ERR_GRANT_EXPIRED:
+    case ErrorCode.ERR_GRANT_REVOKED:
+    case ErrorCode.ERR_GRANT_DENIED:
+    case ErrorCode.ERR_BROWSER_BLOCKED:
+    case ErrorCode.ERR_IP_BLOCKED:
       return 403;
+
+    case ErrorCode.ERR_INVALID_CLAIM_CODE:
+      return 400;
+
+    case ErrorCode.ERR_CLAIM_CODE_USED:
+      return 410;
 
     case ErrorCode.ERR_APP_NOT_FOUND:
     case ErrorCode.ERR_UNKNOWN_RESOURCE:

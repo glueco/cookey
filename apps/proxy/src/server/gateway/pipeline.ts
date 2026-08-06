@@ -1,22 +1,20 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
+import { checkRateLimit } from "@/server/limits/rate-limit";
 import {
-  checkRateLimit,
-  checkAndIncrementBudget,
-  checkModelRateLimit,
-  recordModelUsage,
-  RateLimitResult,
-  BudgetResult,
-} from "@/lib/redis";
+  checkAndIncrementRequestUsage,
+  checkTokenBudget,
+  recordTokenUsage,
+} from "@/server/limits/budget";
 import { decryptSecret } from "@/lib/vault";
 import {
-  authenticateRequest,
-  AuthResult,
-  getAuthErrorStatus,
-} from "@/server/auth/pop";
+  resolveAuth,
+  checkGrantState,
+  checkOriginGate,
+} from "@/server/auth/resolve";
+import { ipMatchesList } from "@/lib/ip-match";
 import {
   getPlugin,
-  type PluginContract,
   type PluginResourceConstraints,
   type PluginExecuteResult,
 } from "@/server/plugins";
@@ -25,13 +23,21 @@ import {
   constraintsToPolicy,
   hasEnforceableConstraints,
 } from "./enforce";
+import { checkPermissionValidity } from "./access-policy";
 import { RequestDecision } from "@prisma/client";
+import type { Grant, GrantAuth, ResourcePermission } from "@prisma/client";
 import { ErrorCode, getErrorStatus } from "@glueco/shared";
 import { logger, generateRequestId, createRequestLogger } from "@/lib/logger";
 
 // ============================================
 // GATEWAY PIPELINE
-// Orchestrates auth → permission → limits → execute → audit
+// Orchestrates auth → grant state → hardening gates → permission →
+// limits → enforcement → execute → audit (7.2 stage order).
+//
+// Key invariants (unchanged from the schema-first pipeline):
+// - Request body is validated and shaped ONCE
+// - If any stage denies, the upstream is never called
+// - Enforcement cannot be bypassed by malformed payloads
 // ============================================
 
 export interface GatewayRequest {
@@ -57,8 +63,14 @@ export interface GatewayResult {
   // Metadata for audit
   metadata?: {
     appId?: string;
+    grantId?: string;
     model?: string;
     latencyMs?: number;
+    usage?: {
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    };
   };
 }
 
@@ -68,20 +80,9 @@ export interface GatewayError {
   message: string;
 }
 
-/**
- * Main gateway pipeline.
- * Processes a request through all stages in strict order.
- *
- * Schema-first pipeline (no extractors):
- * 1. Auth → 2. Status → 3. Permission → 4. Rate Limit → 5. Budget
- * → 6. Plugin validateAndShape (single parse) → 7. Policy Enforcement → 8. Execute → 9. Audit
- *
- * Key invariants:
- * - Request body is validated and shaped ONCE by the plugin
- * - Enforcement uses normalized fields from validateAndShape, not extractors
- * - If validation fails, upstream is never called
- * - If enforcement fails, upstream is never called
- */
+const DEFAULT_RATE_LIMIT_REQUESTS = 60;
+const DEFAULT_RATE_LIMIT_WINDOW_SECS = 60;
+
 export async function processGatewayRequest(
   request: NextRequest,
   body: string,
@@ -90,7 +91,8 @@ export async function processGatewayRequest(
   const startTime = Date.now();
   const requestId = generateRequestId();
   const log = createRequestLogger(requestId);
-  let appId: string | undefined;
+  let grant: Grant | undefined;
+  let authType: GrantAuth | undefined;
 
   log.debug("Processing gateway request", {
     resourceId: gatewayRequest.resourceId,
@@ -100,45 +102,89 @@ export async function processGatewayRequest(
 
   try {
     // ============================================
-    // STAGE 1: PoP Authentication
+    // STAGE 1: Auth Resolve (bearer or PoP)
     // ============================================
-    const authResult = await authenticateRequest(request, body);
+    const auth = await resolveAuth(request, body);
 
-    if (!authResult.success) {
+    if (!auth.success) {
       log.warn("Authentication failed", {
-        errorCode: authResult.errorCode,
-        reason: authResult.error,
+        errorCode: auth.error!.code,
+        reason: auth.error!.message,
       });
       return {
         success: false,
         decision: RequestDecision.DENIED_AUTH,
-        decisionReason: authResult.error,
-        error: {
-          status: getAuthErrorStatus(authResult.errorCode!),
-          code: authResult.errorCode!,
-          message: authResult.error!,
-        },
+        decisionReason: auth.error!.message,
+        error: auth.error!,
       };
     }
 
-    appId = authResult.appId!;
-    log.debug("Authentication successful", { appId });
+    grant = auth.grant!;
+    authType = auth.authType!;
+    log.debug("Authentication successful", {
+      appId: grant.appId,
+      grantId: grant.id,
+      authType,
+    });
+
+    const baseMetadata = { appId: grant.appId, grantId: grant.id };
 
     // ============================================
-    // STAGE 2: App Status Check (already done in auth)
+    // STAGE 2: Grant State
     // ============================================
-    // The authenticateRequest already verifies app status
+    const stateError = checkGrantState(grant);
+    if (stateError) {
+      return {
+        success: false,
+        decision: RequestDecision.DENIED_AUTH,
+        decisionReason: stateError.message,
+        error: stateError,
+        metadata: baseMetadata,
+      };
+    }
 
     // ============================================
-    // STAGE 3: Permission Check
+    // STAGE 3: Origin Gate (browser blocking)
     // ============================================
-    const permission = await prisma.resourcePermission.findUnique({
+    const originError = checkOriginGate(request, grant);
+    if (originError) {
+      return {
+        success: false,
+        decision: RequestDecision.DENIED_PERMISSION,
+        decisionReason: originError.message,
+        error: originError,
+        metadata: baseMetadata,
+      };
+    }
+
+    // ============================================
+    // STAGE 4: Egress IP Check
+    // ============================================
+    if (grant.egressIps) {
+      // Fail closed: an allowlist with no resolvable client IP denies
+      if (!auth.clientIp || !ipMatchesList(auth.clientIp, grant.egressIps)) {
+        return {
+          success: false,
+          decision: RequestDecision.DENIED_PERMISSION,
+          decisionReason: `Client IP ${auth.clientIp ?? "(unknown)"} not in grant allowlist`,
+          error: {
+            status: getErrorStatus(ErrorCode.ERR_IP_BLOCKED),
+            code: ErrorCode.ERR_IP_BLOCKED,
+            message: "Requests from this IP address are not allowed",
+          },
+          metadata: baseMetadata,
+        };
+      }
+    }
+
+    // ============================================
+    // STAGE 5: Permission Lookup (grantId, appId fallback for legacy rows)
+    // ============================================
+    const permission = await prisma.resourcePermission.findFirst({
       where: {
-        appId_resourceId_action: {
-          appId,
-          resourceId: gatewayRequest.resourceId,
-          action: gatewayRequest.action,
-        },
+        resourceId: gatewayRequest.resourceId,
+        action: gatewayRequest.action,
+        OR: [{ grantId: grant.id }, { appId: grant.appId, grantId: null }],
       },
     });
 
@@ -152,49 +198,42 @@ export async function processGatewayRequest(
           code: ErrorCode.ERR_PERMISSION_DENIED,
           message: `App does not have permission for ${gatewayRequest.resourceId}:${gatewayRequest.action}`,
         },
-        metadata: { appId },
+        metadata: baseMetadata,
       };
     }
 
-    // Check if permission has expired
-    if (permission.expiresAt && new Date() > permission.expiresAt) {
-      // Mark permission as expired in DB (async, don't wait)
-      prisma.resourcePermission
-        .update({
-          where: { id: permission.id },
-          data: { status: "EXPIRED" },
-        })
-        .catch((err) =>
-          log.error("Failed to mark permission as expired", { error: err }),
-        );
-
-      log.info("Permission expired", {
-        appId,
+    // Time-based validity (validFrom / expiresAt / timeWindow)
+    const validity = checkPermissionValidity(permission);
+    if (!validity.allowed) {
+      log.info("Permission time-check failed", {
+        appId: grant.appId,
         resourceId: gatewayRequest.resourceId,
         action: gatewayRequest.action,
-        expiresAt: permission.expiresAt.toISOString(),
+        code: validity.code,
       });
-
       return {
         success: false,
         decision: RequestDecision.DENIED_PERMISSION,
-        decisionReason: `Permission expired at ${permission.expiresAt.toISOString()}`,
+        decisionReason: validity.reason,
         error: {
           status: 403,
-          code: ErrorCode.ERR_PERMISSION_EXPIRED,
-          message: `Permission expired at ${permission.expiresAt.toISOString()}`,
+          code:
+            validity.code === "EXPIRED"
+              ? ErrorCode.ERR_PERMISSION_EXPIRED
+              : ErrorCode.ERR_PERMISSION_DENIED,
+          message: validity.reason!,
         },
-        metadata: { appId },
+        metadata: baseMetadata,
       };
     }
 
     // ============================================
-    // STAGE 4: Rate Limit Check (early reject - no body parse)
+    // STAGE 6: Rate Limit (fixed window, permission-level values)
     // ============================================
-    const rateLimitResult = await checkAppRateLimit(
-      appId,
-      gatewayRequest.resourceId,
-      gatewayRequest.action,
+    const rateLimitResult = await checkRateLimit(
+      `rl:${grant.id}:${gatewayRequest.resourceId}:${gatewayRequest.action}`,
+      permission.rateLimitRequests ?? DEFAULT_RATE_LIMIT_REQUESTS,
+      permission.rateLimitWindowSecs ?? DEFAULT_RATE_LIMIT_WINDOW_SECS,
     );
 
     if (!rateLimitResult.allowed) {
@@ -207,31 +246,53 @@ export async function processGatewayRequest(
           code: ErrorCode.ERR_RATE_LIMIT_EXCEEDED,
           message: `Rate limit exceeded. Remaining: ${rateLimitResult.remaining}`,
         },
-        metadata: { appId },
+        metadata: baseMetadata,
       };
     }
 
     // ============================================
-    // STAGE 5: Budget Check (early reject - no body parse)
+    // STAGE 7: Budget (request quotas at admission, token budgets check-only)
     // ============================================
-    const budgetResult = await checkAppBudget(appId);
+    const budgetResult = await checkAndIncrementRequestUsage(permission.id, {
+      dailyQuota: permission.dailyQuota,
+      monthlyQuota: permission.monthlyQuota,
+    });
 
     if (!budgetResult.allowed) {
       return {
         success: false,
         decision: RequestDecision.DENIED_BUDGET,
-        decisionReason: `Daily quota exceeded (${budgetResult.used}/${budgetResult.limit})`,
+        decisionReason: `${budgetResult.period.toLowerCase()} request quota exceeded (${budgetResult.used}/${budgetResult.limit})`,
         error: {
           status: 429,
           code: ErrorCode.ERR_BUDGET_EXCEEDED,
-          message: `Daily request quota exceeded. Used: ${budgetResult.used}/${budgetResult.limit}`,
+          message: `Request quota exceeded. Used: ${budgetResult.used}/${budgetResult.limit}`,
         },
-        metadata: { appId },
+        metadata: baseMetadata,
+      };
+    }
+
+    const tokenBudgetResult = await checkTokenBudget(permission.id, {
+      dailyTokenBudget: permission.dailyTokenBudget,
+      monthlyTokenBudget: permission.monthlyTokenBudget,
+    });
+
+    if (!tokenBudgetResult.allowed) {
+      return {
+        success: false,
+        decision: RequestDecision.DENIED_BUDGET,
+        decisionReason: `${tokenBudgetResult.period.toLowerCase()} token budget exceeded (${tokenBudgetResult.used}/${tokenBudgetResult.limit})`,
+        error: {
+          status: 429,
+          code: ErrorCode.ERR_BUDGET_EXCEEDED,
+          message: `Token budget exceeded. Used: ${tokenBudgetResult.used}/${tokenBudgetResult.limit}`,
+        },
+        metadata: baseMetadata,
       };
     }
 
     // ============================================
-    // STAGE 6: Get Plugin (moved before validation)
+    // STAGE 8: Plugin Resolution + Schema-First Validation
     // ============================================
     const plugin = getPlugin(gatewayRequest.resourceId);
 
@@ -245,14 +306,10 @@ export async function processGatewayRequest(
           code: ErrorCode.ERR_UNKNOWN_RESOURCE,
           message: `Resource '${gatewayRequest.resourceId}' is not supported`,
         },
-        metadata: { appId },
+        metadata: baseMetadata,
       };
     }
 
-    // ============================================
-    // STAGE 7: Schema-First Validation & Shaping
-    // Single parse: plugin validates and extracts enforcement fields
-    // ============================================
     const constraints = permission.constraints as Record<
       string,
       unknown
@@ -280,16 +337,14 @@ export async function processGatewayRequest(
           code: ErrorCode.ERR_CONTRACT_VALIDATION_FAILED,
           message: validation.error!,
         },
-        metadata: { appId },
+        metadata: baseMetadata,
       };
     }
 
-    // Extract enforcement fields from validation result
     const enforcement = validation.enforcement || {};
 
     // ============================================
-    // STAGE 8: Policy Enforcement (using enforcement fields from validation)
-    // No extractors - enforcement uses only what validateAndShape provides
+    // STAGE 9: Policy Enforcement
     // ============================================
     if (hasEnforceableConstraints(constraints)) {
       const policy = constraintsToPolicy(constraints);
@@ -312,14 +367,11 @@ export async function processGatewayRequest(
               ErrorCode.ERR_POLICY_VIOLATION,
             message: enforcementResult.violation?.message || "Policy violation",
           },
-          metadata: { appId, model: enforcement.model },
+          metadata: { ...baseMetadata, model: enforcement.model },
         };
       }
 
-      // ============================================
-      // STAGE 8.5: Model-specific rate limiting
-      // If modelRateLimits are defined, check them
-      // ============================================
+      // Model-specific rate limiting (constraints.modelRateLimits)
       if (enforcement.model && constraints?.modelRateLimits) {
         const modelRateLimits = constraints.modelRateLimits as Array<{
           model: string;
@@ -334,11 +386,8 @@ export async function processGatewayRequest(
         );
 
         if (modelLimit) {
-          const modelRateLimitResult = await checkModelRateLimit(
-            appId,
-            gatewayRequest.resourceId,
-            gatewayRequest.action,
-            enforcement.model,
+          const modelRateLimitResult = await checkRateLimit(
+            `rl:${grant.id}:${gatewayRequest.resourceId}:${gatewayRequest.action}:model:${enforcement.model}`,
             modelLimit.maxRequests,
             modelLimit.windowSeconds,
           );
@@ -353,7 +402,7 @@ export async function processGatewayRequest(
                 code: ErrorCode.ERR_RATE_LIMIT_EXCEEDED,
                 message: `Rate limit exceeded for model '${enforcement.model}'. Remaining: ${modelRateLimitResult.remaining}`,
               },
-              metadata: { appId, model: enforcement.model },
+              metadata: { ...baseMetadata, model: enforcement.model },
             };
           }
         }
@@ -361,7 +410,7 @@ export async function processGatewayRequest(
     }
 
     // ============================================
-    // STAGE 9: Get Resource Secret & Execute
+    // STAGE 10: Get Resource Secret & Execute
     // ============================================
     const resourceSecret = await prisma.resourceSecret.findUnique({
       where: { resourceId: gatewayRequest.resourceId },
@@ -377,17 +426,16 @@ export async function processGatewayRequest(
           code: ErrorCode.ERR_RESOURCE_NOT_CONFIGURED,
           message: `Resource '${gatewayRequest.resourceId}' is not configured`,
         },
-        metadata: { appId },
+        metadata: baseMetadata,
       };
     }
 
-    // Decrypt the secret
+    // Decrypt the secret (only inside execute scope)
     const secret = decryptSecret({
       encryptedKey: resourceSecret.encryptedKey,
       keyIv: resourceSecret.keyIv,
     });
 
-    // Execute the plugin with new context-based signature
     try {
       const result = await plugin.execute(
         gatewayRequest.action,
@@ -402,21 +450,18 @@ export async function processGatewayRequest(
       const latencyMs = Date.now() - startTime;
       const modelUsed = result.usage?.model || enforcement.model;
 
-      // Record model usage statistics (async, don't await)
-      if (modelUsed && result.usage) {
-        recordModelUsage(
-          appId,
-          gatewayRequest.resourceId,
-          modelUsed,
-          result.usage.inputTokens || 0,
-          result.usage.outputTokens || 0,
-        ).catch((err) => {
-          log.warn("Failed to record model usage", { error: err });
-        });
+      // Record token usage against the permission (async, don't await)
+      if (result.usage?.totalTokens) {
+        recordTokenUsage(permission.id, result.usage.totalTokens).catch(
+          (err) => {
+            log.warn("Failed to record token usage", { error: err });
+          },
+        );
       }
 
       log.info("Request completed successfully", {
-        appId,
+        appId: grant.appId,
+        grantId: grant.id,
         resourceId: gatewayRequest.resourceId,
         action: gatewayRequest.action,
         durationMs: latencyMs,
@@ -429,9 +474,16 @@ export async function processGatewayRequest(
         decision: RequestDecision.ALLOWED,
         result,
         metadata: {
-          appId,
+          ...baseMetadata,
           model: modelUsed,
           latencyMs,
+          usage: result.usage
+            ? {
+                inputTokens: result.usage.inputTokens,
+                outputTokens: result.usage.outputTokens,
+                totalTokens: result.usage.totalTokens,
+              }
+            : undefined,
         },
       };
     } catch (error) {
@@ -439,7 +491,8 @@ export async function processGatewayRequest(
       const latencyMs = Date.now() - startTime;
 
       log.error("Plugin execution failed", {
-        appId,
+        appId: grant.appId,
+        grantId: grant.id,
         resourceId: gatewayRequest.resourceId,
         action: gatewayRequest.action,
         errorCode: mapped.code,
@@ -456,10 +509,7 @@ export async function processGatewayRequest(
           code: mapped.code,
           message: mapped.message,
         },
-        metadata: {
-          appId,
-          latencyMs,
-        },
+        metadata: { ...baseMetadata, latencyMs },
       };
     }
   } catch (error) {
@@ -468,7 +518,7 @@ export async function processGatewayRequest(
       "Gateway pipeline error",
       error instanceof Error ? error : new Error(String(error)),
       {
-        appId,
+        appId: grant?.appId,
         resourceId: gatewayRequest.resourceId,
         action: gatewayRequest.action,
         durationMs: latencyMs,
@@ -484,68 +534,9 @@ export async function processGatewayRequest(
         code: ErrorCode.ERR_INTERNAL,
         message: "An internal error occurred",
       },
-      metadata: { appId, latencyMs },
+      metadata: { appId: grant?.appId, grantId: grant?.id, latencyMs },
     };
   }
-}
-
-// ============================================
-// RATE LIMIT & BUDGET HELPERS
-// ============================================
-
-async function checkAppRateLimit(
-  appId: string,
-  resourceId: string,
-  action: string,
-): Promise<RateLimitResult> {
-  // Get limit config from DB
-  const limit = await prisma.appLimit.findFirst({
-    where: {
-      appId,
-      limitType: "RATE_LIMIT",
-      OR: [
-        { resourceId, action }, // Specific limit
-        { resourceId, action: null }, // Resource-wide limit
-        { resourceId: null, action: null }, // Global limit
-      ],
-    },
-    orderBy: [
-      { resourceId: "desc" }, // Prefer specific limits
-      { action: "desc" },
-    ],
-  });
-
-  if (!limit) {
-    // Default: 60 requests per minute
-    return checkRateLimit(`app:${appId}`, 60, 60);
-  }
-
-  const key = limit.resourceId
-    ? `app:${appId}:${limit.resourceId}:${limit.action || "*"}`
-    : `app:${appId}`;
-
-  return checkRateLimit(key, limit.maxRequests, limit.windowSeconds);
-}
-
-async function checkAppBudget(appId: string): Promise<BudgetResult> {
-  // Get budget config from DB
-  const budget = await prisma.appLimit.findFirst({
-    where: {
-      appId,
-      limitType: "BUDGET",
-    },
-  });
-
-  if (!budget) {
-    // Default: 1000 requests per day
-    return checkAndIncrementBudget(`app:${appId}`, 1000, "DAILY");
-  }
-
-  return checkAndIncrementBudget(
-    `app:${appId}`,
-    budget.maxRequests,
-    budget.periodType || "DAILY",
-  );
 }
 
 // ============================================
@@ -560,9 +551,12 @@ export async function logRequest(
   method: string,
 ): Promise<void> {
   try {
+    const usage = result.metadata?.usage;
     await prisma.requestLog.create({
       data: {
         appId: result.metadata?.appId,
+        grantId: result.metadata?.grantId,
+        connectorId: resourceId,
         resourceId,
         action,
         endpoint,
@@ -570,9 +564,21 @@ export async function logRequest(
         decision: result.decision,
         decisionReason: result.decisionReason,
         latencyMs: result.metadata?.latencyMs,
-        metadata: result.metadata?.model
-          ? { model: result.metadata.model }
-          : undefined,
+        metadata:
+          result.metadata?.model || usage
+            ? {
+                ...(result.metadata?.model && { model: result.metadata.model }),
+                ...(usage?.inputTokens !== undefined && {
+                  inputTokens: usage.inputTokens,
+                }),
+                ...(usage?.outputTokens !== undefined && {
+                  outputTokens: usage.outputTokens,
+                }),
+                ...(usage?.totalTokens !== undefined && {
+                  totalTokens: usage.totalTokens,
+                }),
+              }
+            : undefined,
       },
     });
   } catch (error) {

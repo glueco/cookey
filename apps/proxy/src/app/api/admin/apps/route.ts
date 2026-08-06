@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/db";
 import { z } from "zod";
-import { getBudgetUsage, getModelUsageStats } from "@/lib/redis";
+import {
+  getDailyRequestCount,
+  getModelUsageByDay,
+  summarizeUsage,
+} from "@/server/stats/usage";
 import { checkAdminAuth } from "@/lib/admin-auth";
 
 // ============================================
@@ -46,77 +50,19 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Enrich with usage data including model stats
+  // Enrich with usage data including model stats (SQL over RequestLog)
   const enrichedApps = await Promise.all(
     apps.map(async (app) => {
-      const dailyUsage = await getBudgetUsage(`app:${app.id}`, "DAILY");
-
-      // Get unique resource IDs from permissions
-      const resourceIds = [
-        ...new Set(app.permissions.map((p) => p.resourceId)),
-      ];
-
-      // Get model usage stats for each resource (last 7 days)
-      const usageStats: Array<{
-        resourceId: string;
-        date: string;
-        models: Array<{
-          model: string;
-          requestCount: number;
-          totalTokens: number;
-          inputTokens: number;
-          outputTokens: number;
-        }>;
-      }> = [];
-
-      for (const resourceId of resourceIds) {
-        // Get stats for last 7 days
-        for (let i = 0; i < 7; i++) {
-          const date = new Date();
-          date.setDate(date.getDate() - i);
-          const dateStr = date.toISOString().split("T")[0];
-          const models = await getModelUsageStats(app.id, resourceId, dateStr);
-          if (models.length > 0) {
-            usageStats.push({ resourceId, date: dateStr, models });
-          }
-        }
-      }
-
-      // Calculate totals
-      const usageSummary = {
-        totalRequests: usageStats.reduce(
-          (sum, day) =>
-            sum + day.models.reduce((s, m) => s + m.requestCount, 0),
-          0,
-        ),
-        totalTokens: usageStats.reduce(
-          (sum, day) => sum + day.models.reduce((s, m) => s + m.totalTokens, 0),
-          0,
-        ),
-        modelBreakdown: Array.from(
-          usageStats
-            .flatMap((d) => d.models)
-            .reduce((acc, m) => {
-              const existing = acc.get(m.model);
-              if (existing) {
-                existing.requestCount += m.requestCount;
-                existing.totalTokens += m.totalTokens;
-                existing.inputTokens += m.inputTokens;
-                existing.outputTokens += m.outputTokens;
-              } else {
-                acc.set(m.model, { ...m });
-              }
-              return acc;
-            }, new Map<string, (typeof usageStats)[0]["models"][0]>())
-            .values(),
-        ).sort((a, b) => b.requestCount - a.requestCount),
-      };
+      const [dailyUsage, usageStats] = await Promise.all([
+        getDailyRequestCount(app.id),
+        getModelUsageByDay(app.id, 7),
+      ]);
 
       return {
         ...app,
         dailyUsage,
         usageStats,
-        usageSummary,
+        usageSummary: summarizeUsage(usageStats),
       };
     }),
   );
