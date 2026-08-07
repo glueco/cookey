@@ -7,7 +7,7 @@
   "crons": [
     {
       "path": "/api/cron/sweep",
-      "schedule": "0 3 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/connector-updates",

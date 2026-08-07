@@ -25,7 +25,7 @@ export interface EnforcementViolation {
 }
 
 export type EnforcementOutcome =
-  | { allowed: true; body: unknown; clamped: boolean }
+  | { allowed: true; body: unknown; clampedFields: string[] }
   | { allowed: false; violation: EnforcementViolation };
 
 // ---- dot-path helpers ----
@@ -73,7 +73,7 @@ function evaluateRule(
   constraints: Record<string, unknown>,
   connector: ConnectorDocument,
   body: unknown,
-  state: { clamped: boolean },
+  state: { clampedFields: string[] },
 ): EnforcementViolation | null {
   const constraintValue = constraints[rule.constraint];
   const fieldValue = getPath(body, field);
@@ -124,7 +124,7 @@ function evaluateRule(
       if (typeof fieldValue === "number") {
         if (fieldValue > cap) {
           setPath(body, field, cap);
-          state.clamped = true;
+          state.clampedFields.push(field);
         }
       } else {
         setPath(body, field, cap);
@@ -145,16 +145,9 @@ function evaluateRule(
     }
 
     case "maxItems": {
-      if (typeof constraintValue !== "number") return null;
-      if (fieldValue === undefined || fieldValue === null) return null;
-      const count = Array.isArray(fieldValue) ? fieldValue.length : 1;
-      if (count > constraintValue) {
-        return {
-          code: ErrorCode.ERR_CONSTRAINT_VIOLATION,
-          message: `'${field}' has ${count} entries; limit is ${constraintValue}`,
-          field,
-        };
-      }
+      // Evaluated at the group level in applyEnforcement: fields sharing
+      // one constraint key (e.g. to/cc/bcc → maxRecipients) are capped on
+      // their COMBINED count, matching the owner-facing meaning.
       return null;
     }
 
@@ -220,7 +213,7 @@ export function applyEnforcement(
 ): EnforcementOutcome {
   const enforceMap = action.enforce ?? {};
   const entries = Object.entries(enforceMap);
-  if (entries.length === 0) return { allowed: true, body, clamped: false };
+  if (entries.length === 0) return { allowed: true, body, clampedFields: [] };
 
   // Enforcement over a non-object body cannot be trusted — fail closed
   // (unparseable JSON is rejected earlier; this catches arrays/scalars)
@@ -236,7 +229,7 @@ export function applyEnforcement(
   }
 
   const effectiveConstraints = constraints ?? {};
-  const state = { clamped: false };
+  const state = { clampedFields: [] as string[] };
 
   for (const [field, entry] of entries) {
     for (const rule of enforcementRules(entry)) {
@@ -252,7 +245,40 @@ export function applyEnforcement(
     }
   }
 
-  return { allowed: true, body, clamped: state.clamped };
+  // maxItems: fields sharing a constraint key are capped on their
+  // combined count (to + cc + bcc ≤ maxRecipients), not per-field.
+  const maxItemsGroups = new Map<string, { fields: string[]; count: number }>();
+  for (const [field, entry] of entries) {
+    for (const rule of enforcementRules(entry)) {
+      if (rule.rule !== "maxItems") continue;
+      const fieldValue = getPath(body, field);
+      if (fieldValue === undefined || fieldValue === null) continue;
+      const count = Array.isArray(fieldValue) ? fieldValue.length : 1;
+      const group = maxItemsGroups.get(rule.constraint) ?? {
+        fields: [],
+        count: 0,
+      };
+      group.fields.push(field);
+      group.count += count;
+      maxItemsGroups.set(rule.constraint, group);
+    }
+  }
+  for (const [constraintKey, group] of maxItemsGroups) {
+    const cap = effectiveConstraints[constraintKey];
+    if (typeof cap !== "number") continue;
+    if (group.count > cap) {
+      return {
+        allowed: false,
+        violation: {
+          code: ErrorCode.ERR_CONSTRAINT_VIOLATION,
+          message: `${group.fields.map((f) => `'${f}'`).join(" + ")} total ${group.count} entries; limit is ${cap}`,
+          field: group.fields[0],
+        },
+      };
+    }
+  }
+
+  return { allowed: true, body, clampedFields: state.clampedFields };
 }
 
 // ============================================

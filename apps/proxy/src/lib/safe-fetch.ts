@@ -1,4 +1,5 @@
 import { lookup } from "dns/promises";
+import { isIP } from "net";
 
 // ============================================
 // SSRF-GUARDED FETCH
@@ -38,8 +39,9 @@ export class SafeFetchError extends Error {
  * CGNAT, unspecified, and the IPv6 equivalents.
  */
 export function isPrivateIp(ip: string): boolean {
-  // Normalize IPv4-mapped IPv6
-  const v4 = ip.startsWith("::ffff:") ? ip.slice(7) : ip;
+  // Normalize IPv4-mapped IPv6 — both the dotted (`::ffff:127.0.0.1`)
+  // and hex (`::ffff:7f00:1`) spellings.
+  const v4 = extractMappedV4(ip) ?? ip;
 
   const octets = v4.split(".");
   if (octets.length === 4 && octets.every((o) => /^\d{1,3}$/.test(o))) {
@@ -63,6 +65,52 @@ export function isPrivateIp(ip: string): boolean {
   return false;
 }
 
+/**
+ * If `ip` is an IPv4-mapped IPv6 address (::ffff:0:0/96) in ANY spelling,
+ * return the embedded IPv4 in dotted-quad form; otherwise null.
+ */
+function extractMappedV4(ip: string): string | null {
+  if (isIP(ip) !== 6) return null;
+  const groups = expandIpv6(ip.toLowerCase());
+  if (!groups) return null;
+  const isMapped =
+    groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff;
+  if (!isMapped) return null;
+  const hi = groups[6];
+  const lo = groups[7];
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+}
+
+/** Expand an IPv6 string into its 8 16-bit groups (null if malformed). */
+function expandIpv6(ip: string): number[] | null {
+  // A trailing dotted-quad (e.g. ::ffff:127.0.0.1) becomes two groups.
+  let body = ip;
+  const v4Match = body.match(/^(.*):(\d{1,3}(?:\.\d{1,3}){3})$/);
+  let tail: number[] = [];
+  if (v4Match) {
+    const octets = v4Match[2].split(".").map((o) => parseInt(o, 10));
+    if (octets.some((o) => o > 255)) return null;
+    tail = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
+    body = v4Match[1] + ":";
+    if (body === ":") body = "::";
+    if (body.endsWith("::") === false) body = body.slice(0, -1);
+  }
+  const parts = body.split("::");
+  if (parts.length > 2) return null;
+  const parse = (s: string) =>
+    s === "" ? [] : s.split(":").map((g) => parseInt(g || "0", 16));
+  const head = parse(parts[0]);
+  const rest = parts.length === 2 ? parse(parts[1]) : [];
+  const fill = 8 - tail.length - head.length - rest.length;
+  if (parts.length === 1 && head.length + tail.length !== 8) return null;
+  if (fill < 0) return null;
+  const groups = [...head, ...Array(Math.max(0, fill)).fill(0), ...rest, ...tail];
+  if (groups.length !== 8 || groups.some((g) => Number.isNaN(g) || g > 0xffff)) {
+    return null;
+  }
+  return groups;
+}
+
 function isDevLocalhostAllowed(url: URL): boolean {
   return (
     process.env.NODE_ENV === "development" &&
@@ -83,9 +131,14 @@ export async function assertUrlSafe(url: URL): Promise<void> {
     );
   }
 
-  // Literal IP in the URL
+  // Literal IP in the URL. Only CANONICAL forms are allowed through the
+  // literal path — decimal (`https://2130706433/`), octal (`0177.0.0.1`),
+  // hex (`0x7f000001`), and short (`127.1`) spellings are rejected
+  // outright rather than falling through to DNS, because the OS resolver
+  // would happily dial them as numeric addresses.
   const bareHost = url.hostname.replace(/^\[|\]$/g, "");
-  if (/^[\d.]+$/.test(bareHost) || bareHost.includes(":")) {
+  const ipVersion = isIP(bareHost);
+  if (ipVersion !== 0) {
     if (isPrivateIp(bareHost)) {
       throw new SafeFetchError(
         `Refusing to fetch private address ${bareHost}`,
@@ -93,6 +146,12 @@ export async function assertUrlSafe(url: URL): Promise<void> {
       );
     }
     return;
+  }
+  if (/^[0-9.]+$/.test(bareHost) || /^0x[0-9a-f.]+$/i.test(bareHost) || bareHost.includes(":")) {
+    throw new SafeFetchError(
+      `Refusing non-canonical IP literal host "${bareHost}"`,
+      "private_address",
+    );
   }
 
   let addresses;

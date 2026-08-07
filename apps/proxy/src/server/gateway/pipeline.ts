@@ -16,6 +16,7 @@ import { ipMatchesList } from "@/lib/ip-match";
 import { resolveConnector } from "@/server/connectors/registry";
 import type { ConnectorDocument } from "@/server/connectors/schema";
 import { applyEnforcement, extractUsage, mapUpstreamError } from "./enforce";
+import { createUsageScanningStream } from "./stream-usage";
 import { UpstreamError, type AdapterResult } from "@/server/adapters";
 import { checkPermissionValidity } from "./access-policy";
 import { RequestDecision } from "@prisma/client";
@@ -68,8 +69,8 @@ export interface GatewayResult {
       totalTokens?: number;
     };
     costEstimate?: number;
-    /** clampMax capped a request field (surfaced as x-cookey-clamped) */
-    clamped?: boolean;
+    /** Fields clampMax capped (surfaced as x-cookey-clamped: f1,f2) */
+    clampedFields?: string[];
   };
 }
 
@@ -84,7 +85,10 @@ const DEFAULT_RATE_LIMIT_WINDOW_SECS = 60;
 
 export async function processGatewayRequest(
   request: NextRequest,
-  body: string,
+  // Raw bytes preferred: PoP signatures hash the body BYTES, and a
+  // decode→re-encode round-trip mangles non-UTF-8 payloads (exactly what
+  // http-passthrough forwards).
+  body: string | Uint8Array,
   gatewayRequest: GatewayRequest,
 ): Promise<GatewayResult> {
   const startTime = Date.now();
@@ -252,10 +256,14 @@ export async function processGatewayRequest(
     // ============================================
     // STAGE 7: Budget (request quotas at admission, token budgets check-only)
     // ============================================
-    const budgetResult = await checkAndIncrementRequestUsage(permission.id, {
-      dailyQuota: permission.dailyQuota,
-      monthlyQuota: permission.monthlyQuota,
-    });
+    const budgetResult = await checkAndIncrementRequestUsage(
+      permission.id,
+      grant.id,
+      {
+        dailyQuota: permission.dailyQuota,
+        monthlyQuota: permission.monthlyQuota,
+      },
+    );
 
     if (!budgetResult.allowed) {
       return {
@@ -271,7 +279,7 @@ export async function processGatewayRequest(
       };
     }
 
-    const tokenBudgetResult = await checkTokenBudget(permission.id, {
+    const tokenBudgetResult = await checkTokenBudget(grant.id, {
       dailyTokenBudget: permission.dailyTokenBudget,
       monthlyTokenBudget: permission.monthlyTokenBudget,
     });
@@ -391,7 +399,7 @@ export async function processGatewayRequest(
     }
 
     const shapedInput = enforcementResult.body;
-    const wasClamped = enforcementResult.clamped;
+    const clampedFields = enforcementResult.clampedFields;
     const requestedModel =
       shapedInput && typeof shapedInput === "object"
         ? ((shapedInput as { model?: string }).model ?? undefined)
@@ -531,14 +539,32 @@ export async function processGatewayRequest(
 
       const latencyMs = Date.now() - startTime;
 
-      // Usage extraction (non-streaming; streaming keeps plugin-era behavior)
+      // Usage extraction. Non-streaming: read the response object.
+      // Streaming: wrap the passthrough stream with a scanner that reads
+      // usage off the SSE chunks and records it when the stream ends —
+      // otherwise streamed traffic would bypass token budgets entirely.
       const usage = result.response
         ? extractUsage(actionSpec.usage, result.response)
         : {};
       const modelUsed = usage.model || requestedModel;
 
+      if (result.stream && actionSpec.usage) {
+        const permissionId = permission.id;
+        result.stream = createUsageScanningStream(
+          result.stream,
+          actionSpec.usage,
+          async (streamUsage) => {
+            if (streamUsage.totalTokens) {
+              await recordTokenUsage(permissionId, streamUsage.totalTokens);
+            }
+          },
+        );
+      }
+
       if (usage.totalTokens) {
-        recordTokenUsage(permission.id, usage.totalTokens).catch((err) => {
+        // Awaited: fire-and-forget writes can be dropped when a
+        // serverless invocation is frozen right after responding.
+        await recordTokenUsage(permission.id, usage.totalTokens).catch((err) => {
           log.warn("Failed to record token usage", { error: err });
         });
       }
@@ -561,7 +587,7 @@ export async function processGatewayRequest(
           ...baseMetadata,
           model: modelUsed,
           latencyMs,
-          ...(wasClamped && { clamped: true }),
+          ...(clampedFields.length > 0 && { clampedFields }),
           usage: usage.totalTokens !== undefined || usage.inputTokens !== undefined
             ? {
                 inputTokens: usage.inputTokens,

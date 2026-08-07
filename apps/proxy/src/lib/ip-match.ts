@@ -22,7 +22,11 @@ export function parseIpPatterns(list: string): string[] {
  */
 export function ipMatchesList(ip: string, list: string): boolean {
   const patterns = parseIpPatterns(list);
-  if (patterns.length === 0) return true; // empty allowlist = unrestricted
+  // Fail CLOSED on a degenerate list: callers only invoke this when the
+  // grant claims to be IP-pinned, so a whitespace/comma-only value must
+  // not silently accept every IP. (Grant approval also normalizes such
+  // values to null, so this is defense in depth.)
+  if (patterns.length === 0) return false;
   return patterns.some((pattern) => ipMatchesPattern(ip, pattern));
 }
 

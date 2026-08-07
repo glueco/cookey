@@ -22,6 +22,7 @@ export default function TemplatesPage() {
     queryFn: () => api.get<{ templates: TemplateRow[] }>("/api/admin/templates"),
   });
 
+  const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TemplateRow | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -29,10 +30,19 @@ export default function TemplatesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const startEdit = (template: TemplateRow | null) => {
+    setFormOpen(true);
     setEditing(template);
     setName(template?.name ?? "");
     setDescription(template?.description ?? "");
     setValues(JSON.stringify(template?.values ?? { durationMs: 2592000000, budget: { dailyRequests: 500 } }, null, 2));
+    setError(null);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditing(null);
+    setName("");
+    setDescription("");
     setError(null);
   };
 
@@ -51,8 +61,7 @@ export default function TemplatesPage() {
         values: parsed,
       });
       queryClient.invalidateQueries({ queryKey: ["templates"] });
-      setEditing(null);
-      setName("");
+      closeForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     }
@@ -65,9 +74,9 @@ export default function TemplatesPage() {
   };
 
   return (
-    <main className="p-6 space-y-4 max-w-3xl">
+    <main className="p-8 space-y-4 max-w-3xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Templates</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Templates</h1>
         <button className="btn-primary text-sm" onClick={() => startEdit(null)}>
           New template
         </button>
@@ -109,7 +118,7 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {(editing !== null || name) && (
+      {formOpen && (
         <section className="card p-4 space-y-3">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
             {editing ? `Edit "${editing.name}"` : "New template"}
@@ -137,13 +146,7 @@ export default function TemplatesPage() {
             <button className="btn-primary text-sm" disabled={!name} onClick={save}>
               Save
             </button>
-            <button
-              className="btn-secondary text-sm"
-              onClick={() => {
-                setEditing(null);
-                setName("");
-              }}
-            >
+            <button className="btn-secondary text-sm" onClick={closeForm}>
               Cancel
             </button>
           </div>

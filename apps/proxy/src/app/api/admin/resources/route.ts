@@ -32,14 +32,17 @@ export async function GET(request: NextRequest) {
 
 // ============================================
 // POST /api/admin/resources
-// Create/update a resource secret
+// Create/update a resource secret.
+// On UPDATE the secret is optional (blank = keep the stored key) and
+// omitted config keys are merged over the stored config — re-saving a
+// key must not wipe non-secret fields like `organization`.
 // ============================================
 
 const ResourceSchema = z.object({
   resourceId: z.string().min(1), // Format: resourceType:provider (e.g., llm:groq)
   name: z.string().min(1),
   resourceType: z.string().min(1),
-  secret: z.string().min(1),
+  secret: z.string().optional(),
   config: z.record(z.unknown()).optional(),
 });
 
@@ -73,26 +76,48 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Encrypt the secret
-  const encrypted = encryptSecret(parsed.data.secret);
+  const existing = await prisma.resourceSecret.findUnique({
+    where: { resourceId: parsed.data.resourceId },
+    select: { config: true },
+  });
 
-  // Upsert resource
+  const secretProvided = Boolean(parsed.data.secret?.trim());
+  if (!existing && !secretProvided) {
+    return NextResponse.json(
+      { error: "An API key is required when adding credentials" },
+      { status: 400 },
+    );
+  }
+
+  const encrypted = secretProvided
+    ? encryptSecret(parsed.data.secret!)
+    : null;
+
+  // Merge new config over stored config so partial saves keep fields
+  const mergedConfig = {
+    ...((existing?.config as Record<string, unknown> | null) ?? {}),
+    ...(parsed.data.config ?? {}),
+  };
+
   const resource = await prisma.resourceSecret.upsert({
     where: { resourceId: parsed.data.resourceId },
     create: {
       resourceId: parsed.data.resourceId,
       name: parsed.data.name,
       resourceType: parsed.data.resourceType,
-      encryptedKey: encrypted.encryptedKey,
-      keyIv: encrypted.keyIv,
-      config: (parsed.data.config || {}) as object,
+      encryptedKey: encrypted!.encryptedKey,
+      keyIv: encrypted!.keyIv,
+      config: mergedConfig as object,
     },
     update: {
       name: parsed.data.name,
       resourceType: parsed.data.resourceType,
-      encryptedKey: encrypted.encryptedKey,
-      keyIv: encrypted.keyIv,
-      config: (parsed.data.config || {}) as object,
+      // Blank secret on update = keep the stored key
+      ...(encrypted && {
+        encryptedKey: encrypted.encryptedKey,
+        keyIv: encrypted.keyIv,
+      }),
+      config: mergedConfig as object,
     },
     select: {
       id: true,

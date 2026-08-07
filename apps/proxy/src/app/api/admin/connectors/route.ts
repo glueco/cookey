@@ -55,7 +55,11 @@ const InstallSchema = z.union([
     document: z.record(z.unknown()),
     registry: z.boolean().optional(),
   }),
-  z.object({ document: z.record(z.unknown()) }),
+  z.object({
+    document: z.record(z.unknown()),
+    // Builder re-save/edit: replace an existing CUSTOM connector in place
+    replace: z.boolean().optional(),
+  }),
   z.object({ restoreBuiltins: z.literal(true) }),
 ]);
 
@@ -137,8 +141,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ connector: row });
     }
 
-    // Custom builder install
-    const row = await installConnector(data.document, "CUSTOM");
+    // Custom builder install / edit-in-place
+    if (data.replace) {
+      const connectorId = (data.document as { id?: unknown }).id;
+      if (typeof connectorId === "string") {
+        const existing = await prisma.connector.findUnique({
+          where: { connectorId },
+          select: { source: true },
+        });
+        // Only CUSTOM connectors may be replaced from the builder —
+        // BUILTIN/URL/REGISTRY rows go through their own update flows.
+        if (existing && existing.source !== "CUSTOM") {
+          return NextResponse.json(
+            {
+              error: `Connector "${connectorId}" is a ${existing.source} connector — it can't be overwritten from the builder`,
+            },
+            { status: 409 },
+          );
+        }
+      }
+    }
+    const row = await installConnector(data.document, "CUSTOM", {
+      replaceExisting: data.replace ?? false,
+    });
     return NextResponse.json({ connector: row });
   } catch (error) {
     if (error instanceof SafeFetchError) {

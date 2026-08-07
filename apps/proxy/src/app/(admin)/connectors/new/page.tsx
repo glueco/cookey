@@ -1,7 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { api } from "@/lib/api-client";
+import type { ConnectorDocShape } from "@/components/connectors/ConnectorReview";
 
 // ============================================
 // CUSTOM CONNECTOR BUILDER (9.5)
@@ -59,7 +62,10 @@ const LLM_USAGE = {
   model: "model",
 };
 
-export default function CustomConnectorBuilder() {
+function CustomConnectorBuilderInner() {
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
+  const [editMode, setEditMode] = useState(false);
   const [name, setName] = useState("");
   const [provider, setProvider] = useState("");
   const [resourceType, setResourceType] = useState("llm");
@@ -81,6 +87,57 @@ export default function CustomConnectorBuilder() {
 
   const isPassthrough = adapter === "http-passthrough";
   const connectorId = `${resourceType}:${provider}`;
+
+  // Edit mode — seed the entire form from the stored CUSTOM document
+  useEffect(() => {
+    if (!editId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api.get<{
+          connectors: Array<{ connectorId: string; document: ConnectorDocShape }>;
+        }>("/api/admin/connectors");
+        if (cancelled) return;
+        const row = data.connectors.find((c) => c.connectorId === editId);
+        if (!row) {
+          setError(`Connector "${editId}" not found`);
+          return;
+        }
+        const doc = row.document;
+        setName(doc.name ?? "");
+        setProvider(doc.id.split(":").slice(1).join(":"));
+        setResourceType(doc.resourceType);
+        setAdapter(doc.adapter);
+        setBaseUrl(typeof doc.config?.baseUrl === "string" ? doc.config.baseUrl : "");
+        const auth = doc.config?.auth as { type?: string; name?: string } | undefined;
+        if (auth?.type === "bearer" || auth?.type === "header" || auth?.type === "query") {
+          setAuthType(auth.type);
+        }
+        setAuthName(auth?.name ?? "");
+        setModels((doc.models ?? []).join("\n"));
+        setHosts((doc.allowedHosts ?? []).join("\n"));
+        setHostsTouched(true);
+        setActions(
+          Object.entries(doc.actions ?? {}).map(([id, action]) => ({
+            id,
+            method: action.method,
+            path: action.pathPattern ?? action.path ?? "",
+            streaming: action.streaming ?? false,
+          })),
+        );
+        setEditMode(true);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Failed to load connector for editing",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
 
   const derivedHost = useMemo(() => {
     try {
@@ -148,7 +205,8 @@ export default function CustomConnectorBuilder() {
       const res = await fetch("/api/admin/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document }),
+        // Replace in place when editing or re-saving after the first save
+        body: JSON.stringify({ document, replace: editMode || saved }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -163,9 +221,15 @@ export default function CustomConnectorBuilder() {
     }
   };
 
+  const hasCompleteAction = actions.some((a) => a.id && a.path);
+
   const testCall = async () => {
+    const firstAction = actions.find((a) => a.id && a.path);
+    if (!firstAction) {
+      setTestResult("Add at least one complete action row before test-calling.");
+      return;
+    }
     setTestResult("Running…");
-    const firstAction = actions[0];
     const input =
       resourceType === "llm" && !isPassthrough
         ? {
@@ -174,25 +238,29 @@ export default function CustomConnectorBuilder() {
             max_tokens: 32,
           }
         : undefined;
-    const res = await fetch("/api/admin/connectors/test-call", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        connectorId,
-        action: firstAction.id,
-        input,
-        ...(isPassthrough && { subPath: firstAction.path }),
-      }),
-    });
-    const data = await res.json();
-    setTestResult(JSON.stringify(data, null, 2));
+    try {
+      const res = await fetch("/api/admin/connectors/test-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connectorId,
+          action: firstAction.id,
+          input,
+          ...(isPassthrough && { subPath: firstAction.path }),
+        }),
+      });
+      const data = await res.json();
+      setTestResult(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setTestResult(err instanceof Error ? err.message : "Test call failed");
+    }
   };
 
   return (
     <main className="min-h-screen max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-          Build a custom connector
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+          {editMode ? "Edit custom connector" : "Build a custom connector"}
         </h1>
         <Link href="/connectors" className="text-sm text-slate-400 underline">
           ← All connectors
@@ -334,9 +402,9 @@ export default function CustomConnectorBuilder() {
             {saved && (
               <>
                 <Link href={`/connectors/${encodeURIComponent(connectorId)}`} className="btn-secondary text-sm">
-                  Add credentials
+                  Add credentials →
                 </Link>
-                <button className="btn-secondary text-sm" onClick={testCall}>
+                <button className="btn-secondary text-sm" disabled={!hasCompleteAction} onClick={testCall}>
                   Test call
                 </button>
               </>
@@ -344,7 +412,8 @@ export default function CustomConnectorBuilder() {
           </div>
           {saved && (
             <p className="text-xs text-emerald-600">
-              Saved as a CUSTOM connector. Add credentials before test-calling.
+              Saved as a CUSTOM connector. Add credentials before test-calling —
+              come back via Edit in builder to test-call.
             </p>
           )}
           {testResult && (
@@ -365,5 +434,13 @@ export default function CustomConnectorBuilder() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function CustomConnectorBuilder() {
+  return (
+    <Suspense>
+      <CustomConnectorBuilderInner />
+    </Suspense>
   );
 }

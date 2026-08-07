@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         });
 
       case "ACTIVE": {
-        const gatewayUrl = process.env.GATEWAY_URL;
+        const gatewayUrl = process.env.GATEWAY_URL || request.nextUrl.origin;
         return NextResponse.json({
           status: "approved",
           appId: grant.appId,

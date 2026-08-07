@@ -57,17 +57,41 @@ export default function ConnectorDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(
-      `/api/admin/connectors/${encodeURIComponent(connectorId)}`,
-    );
-    if (!res.ok) {
-      setError("Connector not found");
-      return;
+    try {
+      const res = await fetch(
+        `/api/admin/connectors/${encodeURIComponent(connectorId)}`,
+      );
+      if (!res.ok) {
+        setError(
+          res.status === 404
+            ? "Connector not found"
+            : `Failed to load connector (HTTP ${res.status})`,
+        );
+        return;
+      }
+      const data = await res.json();
+      setDetail(data.connector);
+      setCredConfigured(data.credentials.configured);
+      setBoundGrants(data.boundGrants ?? []);
+      // Seed non-secret fields from the stored config so re-saving a
+      // key doesn't wipe fields like `organization`
+      const storedConfig = data.credentials.config as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      if (storedConfig) {
+        setCredValues((prev) => {
+          const next = { ...prev };
+          for (const [key, value] of Object.entries(storedConfig)) {
+            if (!next[key] && typeof value === "string") next[key] = value;
+          }
+          return next;
+        });
+      }
+      setError(null);
+    } catch {
+      setError("Failed to load connector");
     }
-    const data = await res.json();
-    setDetail(data.connector);
-    setCredConfigured(data.credentials.configured);
-    setBoundGrants(data.boundGrants ?? []);
   }, [connectorId]);
 
   useEffect(() => {
@@ -102,8 +126,12 @@ export default function ConnectorDetailPage() {
     setMessage(null);
     try {
       const secretField = credentialFields.find((f) => f.type === "secret");
-      const secret = credValues[secretField?.name ?? "apiKey"];
-      if (!secret) throw new Error("The API key field is required");
+      const secret = credValues[secretField?.name ?? "apiKey"]?.trim();
+      // Blank secret is allowed once credentials exist — the stored key
+      // is kept; it is only required on first configuration
+      if (!secret && !credConfigured) {
+        throw new Error("The API key field is required");
+      }
 
       const config: Record<string, string> = {};
       for (const field of credentialFields) {
@@ -119,7 +147,7 @@ export default function ConnectorDetailPage() {
           resourceId: detail.connectorId,
           name: doc.name,
           resourceType: doc.resourceType,
-          secret,
+          ...(secret && { secret }),
           config,
         }),
       });
@@ -212,7 +240,7 @@ export default function ConnectorDetailPage() {
   return (
     <main className="min-h-screen max-w-2xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           {doc.name}
         </h1>
         <Link href="/connectors" className="text-sm text-slate-400 underline">
@@ -319,6 +347,14 @@ export default function ConnectorDetailPage() {
 
       {/* Actions */}
       <section className="flex flex-wrap gap-2">
+        {detail.source === "CUSTOM" && (
+          <Link
+            href={`/connectors/new?edit=${encodeURIComponent(detail.connectorId)}`}
+            className="btn-secondary text-sm"
+          >
+            Edit in builder
+          </Link>
+        )}
         {detail.sourceUrl && (
           <button
             className="btn-secondary text-sm"

@@ -89,9 +89,24 @@ export function validateConnectorFull(
 }
 
 /**
- * Seed the built-in connectors. Upsert-if-missing only: an
- * admin-modified copy (version differs or source changed) is never
- * overwritten. Runs once per process, lazily.
+ * Compare two semver strings (numeric fields only). True when a > b.
+ */
+export function semverGt(a: string, b: string): boolean {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return true;
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return false;
+  }
+  return false;
+}
+
+/**
+ * Seed the built-in connectors. Missing → created. Present with source
+ * BUILTIN and a LOWER version than the shipped seed → upgraded in place
+ * (shipped built-in updates must land on existing deployments). Any row
+ * whose source is no longer BUILTIN (admin replaced it via the builder
+ * or an install) is never touched. Runs once per process, lazily.
  */
 export async function ensureBuiltinsSeeded(): Promise<void> {
   if (!globalForConnectors.connectorSeedPromise) {
@@ -116,11 +131,29 @@ async function seedBuiltins(): Promise<void> {
 
     const existing = await prisma.connector.findUnique({
       where: { connectorId: document.id },
-      select: { id: true, version: true },
+      select: { id: true, version: true, source: true },
     });
 
     if (existing) {
-      // Never overwrite an admin-modified copy (version differs)
+      if (
+        existing.source === "BUILTIN" &&
+        semverGt(document.version, existing.version)
+      ) {
+        await prisma.connector.update({
+          where: { id: existing.id },
+          data: {
+            resourceType: document.resourceType,
+            version: document.version,
+            document: document as unknown as Prisma.InputJsonValue,
+          },
+        });
+        invalidateConnectorCache();
+        logger.info("Built-in connector upgraded", {
+          connectorId: document.id,
+          from: existing.version,
+          to: document.version,
+        });
+      }
       continue;
     }
 

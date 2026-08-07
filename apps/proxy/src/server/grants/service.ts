@@ -89,6 +89,7 @@ export interface ApproveResult {
 export async function approveGrant(
   grantId: string,
   decisions: GrantDecisions,
+  options: { gatewayUrl?: string } = {},
 ): Promise<ApproveResult> {
   const grant = await prisma.grant.findUnique({ where: { id: grantId } });
   if (!grant) throw new GrantServiceError("Grant not found", 404);
@@ -137,17 +138,22 @@ export async function approveGrant(
     );
   }
 
+  // Normalized egress IP list — a whitespace/comma-only value must store
+  // as null, or the pipeline would treat the grant as IP-pinned while the
+  // matcher fails open on an empty pattern list.
+  const egressIps =
+    decisions.egressIps
+      ?.split(/[\n,]/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .join(",") || null;
+
   const updated = await prisma.$transaction(async (tx) => {
-    await tx.resourcePermission.createMany({
-      data: permissionData,
-      skipDuplicates: true,
-    });
-    await tx.app.update({
-      where: { id: grant.appId },
-      data: { status: "ACTIVE" },
-    });
-    return tx.grant.update({
-      where: { id: grant.id },
+    // Conditional claim: only one concurrent approval can flip
+    // PENDING → ACTIVE. The loser sees count 0 and aborts before any
+    // permission rows or tokens exist for it.
+    const claimed = await tx.grant.updateMany({
+      where: { id: grant.id, status: "PENDING" },
       data: {
         status: "ACTIVE",
         decisions: decisions as unknown as Prisma.InputJsonValue,
@@ -157,13 +163,36 @@ export async function approveGrant(
         currentPeriodEnd,
         inactivitySuspendDays: decisions.inactivitySuspendDays ?? null,
         allowBrowser: decisions.allowBrowser ?? false,
-        egressIps: decisions.egressIps || null,
+        egressIps,
         approvedAt: now,
       },
     });
+    if (claimed.count === 0) {
+      throw new GrantServiceError("Grant was already processed", 409);
+    }
+    await tx.resourcePermission.createMany({
+      data: permissionData,
+      skipDuplicates: true,
+    });
+    await tx.app.update({
+      where: { id: grant.appId },
+      data: { status: "ACTIVE" },
+    });
+    return tx.grant.findUniqueOrThrow({ where: { id: grant.id } });
   });
 
+  const gatewayUrl = process.env.GATEWAY_URL || options.gatewayUrl || "";
+
   if (decisions.auth === "pop") {
+    // PoP apps hold their credential already — redirect back (when the
+    // document asked for it) so the app can finish its connect flow.
+    if (document.redirectUri) {
+      const redirectUrl = new URL(document.redirectUri);
+      redirectUrl.searchParams.set("status", "approved");
+      redirectUrl.searchParams.set("app_id", updated.appId);
+      redirectUrl.searchParams.set("gateway", gatewayUrl);
+      return { grant: updated, redirectUrl: redirectUrl.toString() };
+    }
     return { grant: updated };
   }
 
@@ -177,7 +206,7 @@ export async function approveGrant(
     const code = await createClaimCode(updated.id);
     const redirectUrl = new URL(document.redirectUri);
     redirectUrl.searchParams.set("code", code);
-    redirectUrl.searchParams.set("gateway", process.env.GATEWAY_URL ?? "");
+    redirectUrl.searchParams.set("gateway", gatewayUrl);
     return { grant: updated, redirectUrl: redirectUrl.toString() };
   }
 
@@ -301,7 +330,15 @@ export async function renewGrant(grantId: string): Promise<Grant> {
 
   const updated = await prisma.grant.update({
     where: { id: grantId },
-    data: { status: "ACTIVE", currentPeriodEnd: newPeriodEnd },
+    data: {
+      status: "ACTIVE",
+      currentPeriodEnd: newPeriodEnd,
+      // Renewal extends the grant itself, not just the period — otherwise
+      // computeTokenExpiry() stays min'd to the old expiresAt and the
+      // "renewed" grant re-expires on the next request/sweep.
+      ...(grant.expiresAt &&
+        grant.expiresAt < newPeriodEnd && { expiresAt: newPeriodEnd }),
+    },
   });
 
   const tokenExpiry = computeTokenExpiry(updated);
@@ -310,9 +347,10 @@ export async function renewGrant(grantId: string): Promise<Grant> {
     data: { expiresAt: tokenExpiry },
   });
 
-  // Re-activate permissions that expired with the previous period
+  // Re-activate permissions that expired with the previous period and
+  // push every live permission's expiry out to the new grant expiry.
   await prisma.resourcePermission.updateMany({
-    where: { grantId, status: "EXPIRED" },
+    where: { grantId, status: { in: ["ACTIVE", "EXPIRED"] } },
     data: {
       status: "ACTIVE",
       ...(updated.expiresAt && { expiresAt: updated.expiresAt }),

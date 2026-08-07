@@ -34,7 +34,7 @@ export async function createClaimCode(grantId: string): Promise<string> {
 }
 
 export type ClaimExchangeResult =
-  | { ok: true; token: string; grant: Grant }
+  | { ok: true; token: string; tokenExpiresAt: Date; grant: Grant }
   | { ok: false; status: 400 | 410; reason: string };
 
 /**
@@ -80,20 +80,38 @@ export async function exchangeClaimCode(
     };
   }
 
-  await prisma.$transaction([
-    prisma.claimCode.update({
-      where: { id: row.id },
-      data: { usedAt: new Date() },
-    }),
-    // Successful claim closes the copy-paste window (Addendum A #2):
-    // the app now holds the token, so the encrypted copy is wiped
-    prisma.grantToken.update({
-      where: { id: activeToken!.id },
-      data: { encryptedToken: null, tokenIv: null },
-    }),
-  ]);
+  // Atomically consume the code BEFORE releasing the token. The
+  // conditional `usedAt: null` guard closes the check-then-act race:
+  // two concurrent exchanges can both read `usedAt === null` above, but
+  // only one wins this update — the loser gets the reuse treatment.
+  const consumed = await prisma.claimCode.updateMany({
+    where: { id: row.id, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+  if (consumed.count === 0) {
+    await createNotification(
+      "claim_reuse",
+      "Claim code reused",
+      `A claim code for "${appName(row.grant)}" was presented a second time. ` +
+        "If you did not expect this, consider revoking the grant.",
+      { grantId: row.grantId },
+    );
+    return { ok: false, status: 410, reason: "Claim code already used" };
+  }
 
-  return { ok: true, token, grant: row.grant };
+  // Successful claim closes the copy-paste window (Addendum A #2):
+  // the app now holds the token, so the encrypted copy is wiped
+  await prisma.grantToken.update({
+    where: { id: activeToken!.id },
+    data: { encryptedToken: null, tokenIv: null },
+  });
+
+  return {
+    ok: true,
+    token,
+    tokenExpiresAt: activeToken!.expiresAt,
+    grant: row.grant,
+  };
 }
 
 function appName(grant: Grant): string {

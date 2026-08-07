@@ -27,12 +27,12 @@ function statusStyle(status: string): string {
 function GrantsInner() {
   const searchParams = useSearchParams();
   const statusFilter = searchParams.get("status") ?? undefined;
-  const { data, isLoading } = useGrants(statusFilter);
+  const { data, isLoading, error, refetch } = useGrants(statusFilter);
 
   return (
-    <main className="p-6 space-y-6 max-w-5xl">
+    <main className="p-8 space-y-6 max-w-5xl">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           Grants{statusFilter ? ` — ${statusFilter.toLowerCase()}` : ""}
         </h1>
         <Link href="/grants/new" className="btn-primary text-sm">
@@ -42,6 +42,15 @@ function GrantsInner() {
 
       {isLoading ? (
         <p className="text-slate-500">Loading…</p>
+      ) : error ? (
+        <div className="space-y-2">
+          <p className="text-sm text-red-600 dark:text-red-400">
+            Failed to load grants: {error.message}
+          </p>
+          <button className="btn-secondary text-sm" onClick={() => refetch()}>
+            Retry
+          </button>
+        </div>
       ) : !data?.grants.length ? (
         <p className="text-sm text-slate-500">
           No grants yet. <Link href="/grants/new" className="underline">Add an app</Link> to get started.

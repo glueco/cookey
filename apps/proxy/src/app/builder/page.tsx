@@ -28,6 +28,7 @@ export default function GrantBuilderPage() {
   const [homepage, setHomepage] = useState("");
   const [runtime, setRuntime] = useState("server");
   const [auth, setAuth] = useState<"bearer" | "pop">("bearer");
+  const [publicKey, setPublicKey] = useState("");
   const [duration, setDuration] = useState("30d");
   const [renewable, setRenewable] = useState(false);
   const [renewalPeriod, setRenewalPeriod] = useState("30d");
@@ -56,7 +57,7 @@ export default function GrantBuilderPage() {
       },
       runtime,
       auth,
-      ...(auth === "pop" && { publicKey: "<base64 Ed25519 public key>" }),
+      ...(auth === "pop" && { publicKey: publicKey.trim() }),
       requests: requests.map((row) => ({
         resource: row.resource,
         actions: row.actions.split(",").map((a) => a.trim()).filter(Boolean),
@@ -77,7 +78,7 @@ export default function GrantBuilderPage() {
       ...(redirectUri && { redirectUri }),
     };
     return doc;
-  }, [appName, appDescription, homepage, runtime, auth, duration, renewable, renewalPeriod, dailyRequests, dailyTokens, redirectUri, requests]);
+  }, [appName, appDescription, homepage, runtime, auth, publicKey, duration, renewable, renewalPeriod, dailyRequests, dailyTokens, redirectUri, requests]);
 
   const json = JSON.stringify(document, null, 2);
 
@@ -88,6 +89,8 @@ export default function GrantBuilderPage() {
   };
 
   const bearerSnippet = `# Any OpenAI SDK works — no Cookey code needed
+import os
+
 from openai import OpenAI
 client = OpenAI(
     base_url="https://YOUR-GATEWAY/r/llm/<provider>/v1",
@@ -106,7 +109,7 @@ const { approvalUrl } = await submitGrant({
   return (
     <main className="min-h-screen max-w-6xl mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           Grant builder
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -152,6 +155,18 @@ const { approvalUrl } = await submitGrant({
             </label>
           </div>
 
+          {auth === "pop" && (
+            <label className="block text-sm">
+              Public key (base64 Ed25519)
+              <input className="input w-full mt-1 text-sm font-mono" placeholder="MCowBQYDK2VwAyEA…" value={publicKey} onChange={(e) => setPublicKey(e.target.value)} />
+              {publicKey.trim().length < 40 && (
+                <span className="block mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  paste your app's base64 Ed25519 public key — the document is invalid without it
+                </span>
+              )}
+            </label>
+          )}
+
           <div className="space-y-3">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">Requests</p>
             {requests.map((row, index) => (
@@ -169,6 +184,11 @@ const { approvalUrl } = await submitGrant({
                 <label className="block text-xs text-slate-500">
                   Reason (required — the owner reads this verbatim)
                   <input className="input w-full mt-1 text-sm" placeholder="Runs the AI players each game round." value={row.reason} onChange={(e) => setRequests((prev) => prev.map((r, i) => (i === index ? { ...r, reason: e.target.value } : r)))} />
+                  {!row.reason.trim() && (
+                    <span className="block mt-1 text-xs text-amber-600 dark:text-amber-400">
+                      a reason is required — the gateway rejects requests without one
+                    </span>
+                  )}
                 </label>
                 <div className="flex items-center gap-3">
                   <label className="block text-xs text-slate-500">
@@ -187,7 +207,7 @@ const { approvalUrl } = await submitGrant({
                 </div>
               </div>
             ))}
-            <button className="text-xs text-primary-600 underline" onClick={() => setRequests((prev) => [...prev, { resource: "", actions: "", reason: "", maxOutputTokens: "", allowStreaming: true }])}>
+            <button className="text-xs text-primary-600 underline" onClick={() => setRequests((prev) => [...prev, { resource: "llm:*", actions: "chat.completions", reason: "", maxOutputTokens: "", allowStreaming: true }])}>
               + add request
             </button>
           </div>

@@ -69,7 +69,10 @@ export async function authenticateBearer(
     };
   }
 
-  recordTokenUse(row, clientIp).catch(() => {
+  // Awaited (not fire-and-forget): on serverless the invocation can be
+  // frozen right after the response, and the first-use wipe of the
+  // encrypted token copy is a hard spec requirement (5.4), not best-effort.
+  await recordTokenUse(row, clientIp).catch(() => {
     // Usage tracking must never fail the request
   });
 

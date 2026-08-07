@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { safeFetch } from "@/lib/safe-fetch";
-import { validateConnectorFull } from "@/server/connectors/registry";
+import { validateConnectorFull, semverGt } from "@/server/connectors/registry";
 import { createNotificationOnce } from "@/server/notifications";
 import type { ConnectorDocument } from "@/server/connectors/schema";
 import { logger } from "@/lib/logger";
@@ -45,7 +45,11 @@ async function handle(request: NextRequest) {
 
       const current = row.document as unknown as ConnectorDocument;
       const candidate = validation.document;
-      if (candidate.version === current.version) continue;
+      // The source must still serve the SAME connector, and only a
+      // strictly higher version counts as an update (spec 4.4) — a
+      // downgraded or swapped-out document is not offered for approval.
+      if (candidate.id !== row.connectorId) continue;
+      if (!semverGt(candidate.version, current.version)) continue;
 
       updatesFound++;
       await prisma.connector.update({

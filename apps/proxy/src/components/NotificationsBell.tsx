@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 // ============================================
 // NOTIFICATIONS BELL
 // Unread badge + dropdown feed from /api/admin/notifications.
+// Clicking an item marks it read and deep-links to its subject
+// (grant detail / connectors) when the payload identifies one.
 // ============================================
 
 interface NotificationItem {
@@ -12,11 +15,19 @@ interface NotificationItem {
   type: string;
   title: string;
   body: string;
+  payload: { grantId?: string; connectorId?: string } | null;
   readAt: string | null;
   createdAt: string;
 }
 
+function linkFor(item: NotificationItem): string | null {
+  if (item.payload?.grantId) return `/grants/${item.payload.grantId}`;
+  if (item.payload?.connectorId) return "/connectors";
+  return null;
+}
+
 export function NotificationsBell() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -51,6 +62,18 @@ export function NotificationsBell() {
   const markAllRead = async () => {
     await fetch("/api/admin/notifications/all", { method: "PATCH" });
     load();
+  };
+
+  const openItem = async (item: NotificationItem) => {
+    if (!item.readAt) {
+      await fetch(`/api/admin/notifications/${item.id}`, { method: "PATCH" });
+      load();
+    }
+    const href = linkFor(item);
+    if (href) {
+      setOpen(false);
+      router.push(href);
+    }
   };
 
   return (
@@ -98,7 +121,11 @@ export function NotificationsBell() {
             items.map((item) => (
               <div
                 key={item.id}
-                className={`px-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0 ${
+                role="button"
+                tabIndex={0}
+                onClick={() => openItem(item)}
+                onKeyDown={(e) => e.key === "Enter" && openItem(item)}
+                className={`px-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
                   item.readAt ? "opacity-60" : ""
                 }`}
               >

@@ -84,7 +84,7 @@ describe("ipMatchesList", () => {
     expect(ipMatchesList("8.8.8.8", list)).toBe(false);
   });
 
-  it("treats an empty list as unrestricted", () => {
-    expect(ipMatchesList("8.8.8.8", "  \n ")).toBe(true);
+  it("fails closed on a whitespace-only list (grant claims IP pinning)", () => {
+    expect(ipMatchesList("8.8.8.8", "  \n ")).toBe(false);
   });
 });

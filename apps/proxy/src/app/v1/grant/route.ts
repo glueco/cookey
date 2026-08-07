@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { resolveAuth, checkOriginGate } from "@/server/auth/resolve";
-import { getUsageSnapshot } from "@/server/limits/budget";
+import {
+  resolveAuth,
+  checkOriginGate,
+  checkGrantState,
+} from "@/server/auth/resolve";
+import { getGrantUsageSnapshot } from "@/server/limits/budget";
 import { resolveConnector } from "@/server/connectors/registry";
-import { createErrorResponse } from "@/shared";
+import { ipMatchesList } from "@/lib/ip-match";
+import { createErrorResponse, ErrorCode } from "@/shared";
 import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 
 // ============================================
@@ -25,11 +30,35 @@ export async function GET(request: NextRequest) {
 
   const grant = auth.grant!;
 
+  // Same gate order as the data plane (7.2): grant state → origin →
+  // egress IPs. A suspended/expired grant or a request from outside the
+  // pinned IP list must not read the resource map either.
+  const stateError = checkGrantState(grant);
+  if (stateError) {
+    return NextResponse.json(
+      createErrorResponse(stateError.code, stateError.message),
+      { status: stateError.status, headers: CORS_HEADERS },
+    );
+  }
+
   const originError = checkOriginGate(request, grant);
   if (originError) {
     return NextResponse.json(
       createErrorResponse(originError.code, originError.message),
       { status: originError.status, headers: CORS_HEADERS },
+    );
+  }
+
+  if (
+    grant.egressIps &&
+    (!auth.clientIp || !ipMatchesList(auth.clientIp, grant.egressIps))
+  ) {
+    return NextResponse.json(
+      createErrorResponse(
+        ErrorCode.ERR_PERMISSION_DENIED,
+        "Request IP is not in this grant's egress allowlist",
+      ),
+      { status: 403, headers: CORS_HEADERS },
     );
   }
 
@@ -46,10 +75,19 @@ export async function GET(request: NextRequest) {
     byResource.set(permission.resourceId, list);
   }
 
+  // Budgets are grant-level (denormalized identically onto every
+  // permission row), so remaining is computed against grant-wide usage.
+  const usage = await getGrantUsageSnapshot(grant.id);
+
   const resources = await Promise.all(
     [...byResource.entries()].map(async ([resourceId, perms]) => {
-      const constraints =
-        (perms[0].constraints as Record<string, unknown> | null) ?? {};
+      // Multiple grant requests may bind the same resource with
+      // different constraints — report the tightest merge, not perms[0].
+      const constraints = mergeConstraints(
+        perms.map(
+          (p) => (p.constraints as Record<string, unknown> | null) ?? {},
+        ),
+      );
 
       // models = provider models ∩ allowedModels (when set)
       const allowedModels = Array.isArray(constraints.allowedModels)
@@ -65,7 +103,6 @@ export async function GET(request: NextRequest) {
             )
           : [...providerModels];
 
-      const usage = await getUsageSnapshot(perms[0].id);
       const remaining: Record<string, number> = {};
       if (perms[0].dailyQuota) {
         remaining.dailyRequests = Math.max(
@@ -120,4 +157,30 @@ export async function OPTIONS() {
     status: 204,
     headers: CORS_PREFLIGHT_HEADERS,
   });
+}
+
+/**
+ * Merge permission constraint objects into the tightest combination:
+ * numbers → min, booleans → AND, arrays → intersection (or the shorter
+ * list when one side is missing), everything else → first defined.
+ */
+function mergeConstraints(
+  all: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const constraints of all) {
+    for (const [key, value] of Object.entries(constraints)) {
+      const existing = merged[key];
+      if (existing === undefined) {
+        merged[key] = value;
+      } else if (typeof existing === "number" && typeof value === "number") {
+        merged[key] = Math.min(existing, value);
+      } else if (typeof existing === "boolean" && typeof value === "boolean") {
+        merged[key] = existing && value;
+      } else if (Array.isArray(existing) && Array.isArray(value)) {
+        merged[key] = existing.filter((v) => value.includes(v));
+      }
+    }
+  }
+  return merged;
 }

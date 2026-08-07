@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
 import { exchangeClaimCode } from "@/server/grants/claim-codes";
 import { checkRateLimit } from "@/server/limits/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
@@ -69,17 +68,13 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const activeToken = await prisma.grantToken.findFirst({
-    where: { grantId: result.grant.id, revokedAt: null },
-    orderBy: { createdAt: "desc" },
-    select: { expiresAt: true },
-  });
-
   return NextResponse.json(
     {
       token: result.token,
       grantId: result.grant.id,
-      expiresAt: activeToken?.expiresAt.toISOString() ?? null,
+      // Expiry of the token actually handed out — not whatever token
+      // happens to be newest at claim time.
+      expiresAt: result.tokenExpiresAt.toISOString(),
     },
     { headers: CORS_HEADERS },
   );

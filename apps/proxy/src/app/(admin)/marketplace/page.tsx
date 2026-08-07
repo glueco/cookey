@@ -32,15 +32,13 @@ export default function MarketplacePage() {
     (async () => {
       try {
         const res = await fetch("/api/admin/connectors/marketplace");
-        if (res.status === 401) {
-          window.location.href = "/dashboard";
-          return;
-        }
         const data = await res.json();
+        // The error payload also carries registryUrl — keep it so the
+        // error banner can say which registry failed.
+        setRegistryUrl(data.registryUrl ?? "");
         if (!res.ok) throw new Error(data.error ?? "Failed to load registry");
         setEntries(data.entries ?? []);
         setInstalled(data.installed ?? {});
-        setRegistryUrl(data.registryUrl ?? "");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load registry");
       } finally {
@@ -70,10 +68,10 @@ export default function MarketplacePage() {
   };
 
   return (
-    <main className="min-h-screen max-w-4xl mx-auto p-6 space-y-6">
+    <main className="min-h-screen max-w-4xl mx-auto p-8 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Marketplace
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -110,8 +108,19 @@ export default function MarketplacePage() {
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300">
-          {error} — is the registry URL reachable? ({registryUrl || "not set"})
+        <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300 space-y-1">
+          <p>
+            {error} — is the registry URL reachable?{" "}
+            {registryUrl && <span className="font-mono text-xs">({registryUrl})</span>}
+          </p>
+          <p className="text-xs">
+            You can change the registry URL in{" "}
+            <Link href="/settings" className="underline">
+              Settings
+            </Link>
+            , or install connectors directly from a URL or the custom builder
+            below.
+          </p>
         </div>
       )}
 

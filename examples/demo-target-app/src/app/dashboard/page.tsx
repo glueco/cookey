@@ -360,12 +360,12 @@ export default function DashboardPage() {
         throw new Error(data.error || "Rotation failed");
       }
 
-      // Update connection with new handle
+      // Update connection with new handle (keep createdAt - rotating the
+      // key does not extend the original session lifetime)
       if (data.newHandle) {
         const updated: Connection = {
           ...activeConnection,
           handle: data.newHandle,
-          createdAt: new Date().toISOString(),
         };
         const conns = loadConnections();
         const filtered = conns.filter(c => c.gatewayUrl !== activeConnection.gatewayUrl);
@@ -413,9 +413,14 @@ export default function DashboardPage() {
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="font-bold text-lg text-gray-900 dark:text-gray-50">
-              Dashboard
-            </h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-bold text-lg tracking-tight text-gray-900 dark:text-gray-50">
+                Dashboard
+              </h1>
+              <span className="badge-brand hidden md:inline-flex">
+                Cookey demo app
+              </span>
+            </div>
             {activeConnection && (
               <div className="hidden sm:flex items-center gap-2 text-sm">
                 <span className="status-dot-success" />
@@ -427,7 +432,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             {timeRemaining !== null && (
               <span
-                className={`text-sm font-mono ${isExpiringSoon ? "text-amber-600 dark:text-amber-400" : "text-gray-500"}`}
+                className={`text-sm font-mono tabular-nums ${isExpiringSoon ? "text-amber-600 dark:text-amber-400" : "text-gray-500"}`}
               >
                 {formatTimeRemaining(timeRemaining)}
               </span>
@@ -482,7 +487,7 @@ export default function DashboardPage() {
                     onClick={() => handlePresetSelect(preset)}
                     disabled={loading}
                     className={`card-hover w-full p-4 text-left flex items-start gap-3 group ${
-                      selectedPreset?.id === preset.id ? "ring-2 ring-indigo-500" : ""
+                      selectedPreset?.id === preset.id ? "ring-2 ring-primary-500" : ""
                     }`}
                   >
                     <span
@@ -493,7 +498,7 @@ export default function DashboardPage() {
                       {preset.method}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm text-gray-900 dark:text-gray-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                      <div className="font-medium text-sm text-gray-900 dark:text-gray-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                         {preset.name}
                       </div>
                       <div className="text-xs text-gray-500 truncate mt-0.5">
@@ -602,7 +607,7 @@ export default function DashboardPage() {
                   <textarea
                     value={requestBody}
                     onChange={(e) => handleRequestBodyChange(e.target.value)}
-                    className={`w-full h-48 font-mono text-xs p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y ${
+                    className={`w-full h-48 font-mono text-xs p-3 border border-gray-300 rounded-lg bg-white dark:bg-gray-800 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-y ${
                       jsonError ? "border-red-500" : ""
                     }`}
                     disabled={loading}
@@ -642,15 +647,18 @@ export default function DashboardPage() {
 
               {loading && (
                 <div className="flex flex-col items-center justify-center py-16 gap-3">
-                  <LoadingSpinner className="h-8 w-8 text-indigo-600" />
+                  <LoadingSpinner className="h-8 w-8 text-primary-600" />
                   <p className="text-sm text-gray-500">Executing request...</p>
                 </div>
               )}
 
               {!loading && !error && !response && (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                  <PlayIcon />
-                  <p className="text-sm mt-2">Select a preset to run a test</p>
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+                  <span className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-gray-100 dark:bg-gray-800 mb-3">
+                    <PlayIcon />
+                  </span>
+                  <p className="text-sm font-medium">No response yet</p>
+                  <p className="text-xs mt-1">Select a preset to run a test</p>
                 </div>
               )}
 
@@ -667,7 +675,7 @@ export default function DashboardPage() {
                     >
                       {response.status} {response.statusText}
                     </span>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 tabular-nums">
                       {response.duration}ms
                     </span>
                   </div>
@@ -687,7 +695,7 @@ export default function DashboardPage() {
                       <div className="code-block text-xs space-y-1 max-h-32 overflow-y-auto">
                         {Object.entries(response.headers).map(([key, value]) => (
                           <div key={key}>
-                            <span className="text-purple-600 dark:text-purple-400">
+                            <span className="text-primary-700 dark:text-primary-400">
                               {key}:
                             </span>{" "}
                             <span className="text-gray-600 dark:text-gray-400">

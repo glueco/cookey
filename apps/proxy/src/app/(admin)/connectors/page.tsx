@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api-client";
 import { TrustBadge, type TrustLevel } from "@/components/connectors/ConnectorReview";
 
 // ============================================
@@ -30,50 +32,53 @@ const TRUST: Record<ConnectorRow["source"], TrustLevel> = {
 };
 
 export default function ConnectorsPage() {
-  const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-  const load = async () => {
+  const {
+    data,
+    isLoading: loading,
+    error: loadError,
+    refetch,
+  } = useQuery({
+    queryKey: ["connectors"],
+    queryFn: () =>
+      api.get<{ connectors: ConnectorRow[] }>("/api/admin/connectors"),
+  });
+  const connectors = data?.connectors ?? [];
+
+  const toggle = async (row: ConnectorRow) => {
+    setError(null);
+    setMessage(null);
     try {
-      const res = await fetch("/api/admin/connectors");
-      const data = await res.json();
-      setConnectors(data.connectors ?? []);
-      setError(null);
-    } catch {
-      setError("Failed to load connectors");
-    } finally {
-      setLoading(false);
+      await api.patch(
+        `/api/admin/connectors/${encodeURIComponent(row.connectorId)}`,
+        { enabled: !row.enabled },
+      );
+      queryClient.invalidateQueries({ queryKey: ["connectors"] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update connector");
     }
   };
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  const toggle = async (row: ConnectorRow) => {
-    await fetch(`/api/admin/connectors/${encodeURIComponent(row.connectorId)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !row.enabled }),
-    });
-    load();
-  };
-
   const restoreBuiltins = async () => {
-    await fetch("/api/admin/connectors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ restoreBuiltins: true }),
-    });
-    load();
+    setError(null);
+    setMessage(null);
+    try {
+      await api.post("/api/admin/connectors", { restoreBuiltins: true });
+      setMessage("Built-in connectors restored.");
+      queryClient.invalidateQueries({ queryKey: ["connectors"] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to restore built-ins");
+    }
   };
 
   return (
     <main className="min-h-screen max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Connectors
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -98,9 +103,21 @@ export default function ConnectorsPage() {
           {error}
         </div>
       )}
+      {message && (
+        <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200">
+          {message}
+        </div>
+      )}
 
       {loading ? (
         <p className="text-slate-500">Loading…</p>
+      ) : loadError ? (
+        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300 space-y-2">
+          <p>Failed to load connectors: {loadError.message}</p>
+          <button className="btn-secondary text-xs" onClick={() => refetch()}>
+            Retry
+          </button>
+        </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
           {connectors.map((row) => (

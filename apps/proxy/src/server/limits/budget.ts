@@ -11,6 +11,11 @@ import type { UsagePeriodType } from "@prisma/client";
 //   still consumed its increment), allowed = used <= limit.
 // - Token counts are checked before the upstream call (check-only) and
 //   incremented only after upstream success.
+//
+// Budgets come from the GRANT (decisions.budget) and are denormalized
+// onto every permission row, so enforcement aggregates usage across ALL
+// of a grant's permissions — otherwise a wildcard bound to N connectors
+// × M actions would multiply the owner-approved ceiling by N×M.
 // ============================================
 
 export interface BudgetResult {
@@ -91,16 +96,36 @@ async function incrementUsage(
 }
 
 /**
- * Increment request counters (daily + monthly) at admission and check quotas.
- * Returns the first violated quota, or the daily result when allowed.
+ * Sum usage counters for a period across every permission of a grant.
+ */
+async function grantPeriodUsage(
+  grantId: string,
+  periodType: UsagePeriodType,
+  periodStart: Date,
+): Promise<{ requests: number; tokens: number }> {
+  const totals = await prisma.permissionUsage.aggregate({
+    where: { permission: { grantId }, periodType, periodStart },
+    _sum: { requestCount: true, tokenCount: true },
+  });
+  return {
+    requests: totals._sum.requestCount ?? 0,
+    tokens: totals._sum.tokenCount ?? 0,
+  };
+}
+
+/**
+ * Increment request counters (daily + monthly) at admission and check quotas
+ * against the GRANT-WIDE totals. Returns the first violated quota, or the
+ * daily result when allowed.
  */
 export async function checkAndIncrementRequestUsage(
   permissionId: string,
+  grantId: string,
   quotas: { dailyQuota?: number | null; monthlyQuota?: number | null },
 ): Promise<BudgetResult & { period: UsagePeriodType }> {
   const now = new Date();
 
-  const [daily, monthly] = await Promise.all([
+  await Promise.all([
     incrementUsage(permissionId, "DAILY", dailyPeriodStart(now), {
       requests: 1,
     }),
@@ -109,20 +134,25 @@ export async function checkAndIncrementRequestUsage(
     }),
   ]);
 
-  if (quotas.dailyQuota && daily.requestCount > quotas.dailyQuota) {
+  const [daily, monthly] = await Promise.all([
+    grantPeriodUsage(grantId, "DAILY", dailyPeriodStart(now)),
+    grantPeriodUsage(grantId, "MONTHLY", monthlyPeriodStart(now)),
+  ]);
+
+  if (quotas.dailyQuota && daily.requests > quotas.dailyQuota) {
     return {
       allowed: false,
-      used: daily.requestCount,
+      used: daily.requests,
       limit: quotas.dailyQuota,
       periodEnd: periodEndUnix("DAILY", now),
       period: "DAILY",
     };
   }
 
-  if (quotas.monthlyQuota && monthly.requestCount > quotas.monthlyQuota) {
+  if (quotas.monthlyQuota && monthly.requests > quotas.monthlyQuota) {
     return {
       allowed: false,
-      used: monthly.requestCount,
+      used: monthly.requests,
       limit: quotas.monthlyQuota,
       periodEnd: periodEndUnix("MONTHLY", now),
       period: "MONTHLY",
@@ -131,7 +161,7 @@ export async function checkAndIncrementRequestUsage(
 
   return {
     allowed: true,
-    used: daily.requestCount,
+    used: daily.requests,
     limit: quotas.dailyQuota ?? 0,
     periodEnd: periodEndUnix("DAILY", now),
     period: "DAILY",
@@ -143,7 +173,7 @@ export async function checkAndIncrementRequestUsage(
  * upstream success). Deny when current usage has already reached the budget.
  */
 export async function checkTokenBudget(
-  permissionId: string,
+  grantId: string,
   budgets: {
     dailyTokenBudget?: number | null;
     monthlyTokenBudget?: number | null;
@@ -161,21 +191,12 @@ export async function checkTokenBudget(
     };
   }
 
-  const usage = await prisma.permissionUsage.findMany({
-    where: {
-      permissionId,
-      OR: [
-        { periodType: "DAILY", periodStart: dailyPeriodStart(now) },
-        { periodType: "MONTHLY", periodStart: monthlyPeriodStart(now) },
-      ],
-    },
-    select: { periodType: true, tokenCount: true },
-  });
-
-  const dailyUsed =
-    usage.find((u) => u.periodType === "DAILY")?.tokenCount ?? 0;
-  const monthlyUsed =
-    usage.find((u) => u.periodType === "MONTHLY")?.tokenCount ?? 0;
+  const [daily, monthly] = await Promise.all([
+    grantPeriodUsage(grantId, "DAILY", dailyPeriodStart(now)),
+    grantPeriodUsage(grantId, "MONTHLY", monthlyPeriodStart(now)),
+  ]);
+  const dailyUsed = daily.tokens;
+  const monthlyUsed = monthly.tokens;
 
   if (budgets.dailyTokenBudget && dailyUsed >= budgets.dailyTokenBudget) {
     return {
@@ -224,7 +245,8 @@ export async function recordTokenUsage(
 }
 
 /**
- * Current-period usage snapshot for a permission (drives /v1/grant remaining).
+ * Current-period usage snapshot for a permission (per-permission view,
+ * used by the admin grant-detail usage bars).
  */
 export async function getUsageSnapshot(permissionId: string): Promise<{
   dailyRequests: number;
@@ -252,5 +274,28 @@ export async function getUsageSnapshot(permissionId: string): Promise<{
     monthlyRequests: monthly?.requestCount ?? 0,
     dailyTokens: daily?.tokenCount ?? 0,
     monthlyTokens: monthly?.tokenCount ?? 0,
+  };
+}
+
+/**
+ * Grant-wide current-period usage snapshot (drives /v1/grant remaining —
+ * budgets are grant-level, so remaining must be too).
+ */
+export async function getGrantUsageSnapshot(grantId: string): Promise<{
+  dailyRequests: number;
+  monthlyRequests: number;
+  dailyTokens: number;
+  monthlyTokens: number;
+}> {
+  const now = new Date();
+  const [daily, monthly] = await Promise.all([
+    grantPeriodUsage(grantId, "DAILY", dailyPeriodStart(now)),
+    grantPeriodUsage(grantId, "MONTHLY", monthlyPeriodStart(now)),
+  ]);
+  return {
+    dailyRequests: daily.requests,
+    monthlyRequests: monthly.requests,
+    dailyTokens: daily.tokens,
+    monthlyTokens: monthly.tokens,
   };
 }

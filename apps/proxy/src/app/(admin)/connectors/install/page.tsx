@@ -83,7 +83,7 @@ function InstallConnectorInner() {
   if (installed && preview) {
     return (
       <main className="min-h-screen max-w-2xl mx-auto p-6 space-y-4">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           {preview.name} installed
         </h1>
         <p className="text-sm text-slate-500">
@@ -108,7 +108,7 @@ function InstallConnectorInner() {
   return (
     <main className="min-h-screen max-w-2xl mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           Install connector from URL
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">

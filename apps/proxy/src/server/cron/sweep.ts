@@ -148,16 +148,20 @@ export async function runSweep() {
   const anomalyRows = await prisma.$queryRaw<
     Array<{ grantId: string; today: bigint; avg7: number }>
   >(Prisma.sql`
+    -- "today" is floored in UTC to match the budget counters
+    -- (budget.ts dailyPeriodStart) regardless of the DB session timezone.
     SELECT
       "grantId",
-      COUNT(*) FILTER (WHERE "timestamp" >= date_trunc('day', NOW())) AS "today",
       COUNT(*) FILTER (
-        WHERE "timestamp" >= NOW() - interval '8 days'
-          AND "timestamp" < date_trunc('day', NOW())
+        WHERE "timestamp" >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      ) AS "today",
+      COUNT(*) FILTER (
+        WHERE "timestamp" >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' - interval '7 days'
+          AND "timestamp" < date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       ) / 7.0 AS "avg7"
     FROM "RequestLog"
     WHERE "grantId" IS NOT NULL
-      AND "timestamp" >= NOW() - interval '8 days'
+      AND "timestamp" >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' - interval '7 days'
     GROUP BY "grantId"
   `);
 

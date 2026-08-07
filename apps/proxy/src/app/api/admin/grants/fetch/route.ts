@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({
       grant,
-      approvalUrl: `${process.env.GATEWAY_URL ?? ""}/connect/approve?grant=${grant.id}`,
+      approvalUrl: `${process.env.GATEWAY_URL || request.nextUrl.origin}/connect/approve?grant=${grant.id}`,
     });
   } catch (error) {
     if (error instanceof GrantServiceError) {

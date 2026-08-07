@@ -260,7 +260,8 @@ function HomePageContent() {
       const appId = urlParams.get("app_id");
       
       if (status === "approved" && appId) {
-        // We returned from approval - complete the connection
+        // We returned from approval - confirm with one status poll and
+        // complete the connection using the pending session
         const pending = loadPendingSession();
         if (pending) {
           try {
@@ -269,7 +270,7 @@ function HomePageContent() {
               `/api/connect/status?session=${encodeURIComponent(pending.sessionToken)}&gatewayUrl=${encodeURIComponent(pending.gatewayUrl)}`
             );
             const data = await response.json();
-            
+
             if (data.status === "approved" && data.handle) {
               const connection: Connection = {
                 gatewayUrl: data.gatewayUrl,
@@ -280,11 +281,21 @@ function HomePageContent() {
               addConnection(connection);
               setConnections(loadConnections());
               setActiveConnection(connection);
+              clearPendingSession();
+            } else if (data.status === "rejected" || data.status === "expired") {
+              setError(`Connection ${data.status}. Please try again.`);
+              clearPendingSession();
+            } else {
+              // Gateway hasn't settled yet - resume polling instead of
+              // dropping the session
+              setPolling(true);
+              setPollingSession(pending);
             }
           } catch (err) {
             console.error("Failed to complete connection:", err);
-          } finally {
-            clearPendingSession();
+            // Transient error - resume polling rather than dropping the session
+            setPolling(true);
+            setPollingSession(pending);
           }
         }
         // Clear URL params
@@ -293,8 +304,16 @@ function HomePageContent() {
         setError("Connection was rejected.");
         clearPendingSession();
         window.history.replaceState({}, "", window.location.pathname);
+      } else if (conns.length === 0) {
+        // No callback params and not connected - resume polling if a
+        // pending session was left behind before navigating to approval
+        const pending = loadPendingSession();
+        if (pending) {
+          setPolling(true);
+          setPollingSession(pending);
+        }
       }
-      
+
       setInitialized(true);
     };
     
@@ -347,11 +366,13 @@ function HomePageContent() {
           addConnection(connection);
           setConnections(loadConnections());
           setActiveConnection(connection);
+          clearPendingSession();
           setPolling(false);
           setPollingSession(null);
           setLoading(false);
         } else if (data.status === "rejected" || data.status === "expired") {
           setError(`Connection ${data.status}. Please try again.`);
+          clearPendingSession();
           setPolling(false);
           setPollingSession(null);
           setLoading(false);
@@ -434,6 +455,14 @@ function HomePageContent() {
         gatewayUrl: data.gatewayUrl,
       });
 
+      // Arm polling before navigating away so approval in another tab (or
+      // a return to this page) completes the connection
+      setPolling(true);
+      setPollingSession({
+        sessionToken: data.sessionToken,
+        gatewayUrl: data.gatewayUrl,
+      });
+
       // Redirect to approval URL in same tab
       window.location.href = data.approvalUrl;
     } catch (err) {
@@ -458,6 +487,7 @@ function HomePageContent() {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
     }
+    clearPendingSession();
     setPolling(false);
     setPollingSession(null);
     setLoading(false);
@@ -483,10 +513,13 @@ function HomePageContent() {
       <div className="max-w-xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 mb-2">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white shadow-lg shadow-primary-500/25 mb-2">
             <ShieldCheckIcon />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-50">
+          <div>
+            <span className="badge-brand">Cookey demo app</span>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-50">
             Demo Target App
           </h1>
           <p className="text-gray-600 dark:text-gray-400 max-w-md mx-auto">
@@ -495,7 +528,7 @@ function HomePageContent() {
           </p>
           <a
             href="/bearer"
-            className="inline-block text-sm text-indigo-600 dark:text-indigo-400 underline"
+            className="inline-block text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 underline underline-offset-4 decoration-primary-300 dark:decoration-primary-700"
           >
             Try the bearer-token connection instead (no SDK) →
           </a>
@@ -562,7 +595,7 @@ function HomePageContent() {
                         Session Expires In
                       </p>
                       <span
-                        className={`font-mono text-sm font-medium ${isExpiringSoon ? "text-amber-600 dark:text-amber-400" : "text-gray-900 dark:text-gray-100"}`}
+                        className={`font-mono text-sm font-medium tabular-nums ${isExpiringSoon ? "text-amber-600 dark:text-amber-400" : "text-gray-900 dark:text-gray-100"}`}
                       >
                         {formatTimeRemaining(timeRemaining)}
                       </span>
@@ -689,7 +722,7 @@ function HomePageContent() {
               "Test endpoints in the Dashboard",
             ].map((step, index) => (
               <li key={index} className="flex items-start gap-3 text-sm">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs font-medium">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 flex items-center justify-center text-xs font-semibold tabular-nums">
                   {index + 1}
                 </span>
                 <span className="text-gray-600 dark:text-gray-400 pt-0.5">
@@ -703,7 +736,7 @@ function HomePageContent() {
 
         {/* Footer */}
         <p className="text-center text-xs text-gray-400 dark:text-gray-500">
-          Personal Resource Gateway • Demo Target App
+          Cookey · Personal Resource Gateway · Demo Target App
         </p>
       </div>
     </main>

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { listEnabledConnectors } from "@/server/connectors/registry";
+import { getInactivitySuspendDaysDefault } from "@/server/settings";
 import {
   parseDurationMs,
   parseDurationDays,
@@ -83,14 +84,16 @@ export default async function ApprovePage({ searchParams }: PageProps) {
 
   const document = grant.document as unknown as GrantDocumentShape;
 
-  // Configured providers for wildcard binding + pricing for projection
-  const [secrets, connectors] = await Promise.all([
+  // Configured providers for wildcard binding + pricing for projection,
+  // plus the owner's default inactivity-suspend window
+  const [secrets, connectors, inactivitySuspendDaysDefault] = await Promise.all([
     prisma.resourceSecret.findMany({
       where: { status: "ACTIVE" },
       select: { resourceId: true, name: true, resourceType: true },
       orderBy: { resourceId: "asc" },
     }),
     listEnabledConnectors(),
+    getInactivitySuspendDaysDefault(),
   ]);
   const connectorInfo = Object.fromEntries(
     connectors.map((connector) => [
@@ -131,6 +134,7 @@ export default async function ApprovePage({ searchParams }: PageProps) {
                   ? parseDurationDays(document.renewal.period)
                   : null
               }
+              defaultInactivitySuspendDays={inactivitySuspendDaysDefault}
             />
             <RawJsonExpander value={document} />
           </div>

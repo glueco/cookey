@@ -23,7 +23,7 @@ interface ConnectorOption {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
-  const { data } = useQuery({
+  const { data, error: loadError, refetch } = useQuery({
     queryKey: ["settings"],
     queryFn: () => api.get<SettingsResponse>("/api/admin/settings"),
   });
@@ -60,33 +60,57 @@ export default function SettingsPage() {
   }, [data]);
 
   const save = async () => {
+    // The form is only rendered once `data` has loaded (see below), so a
+    // save can never clobber stored values with blank initial state.
     setMessage(null);
-    const entries: Array<[string, unknown]> = [
-      ["gatewayName", form.gatewayName],
-      ["marketplaceUrl", form.marketplaceUrl || data?.defaults.marketplaceUrl],
-      ["inactivitySuspendDaysDefault", parseInt(form.inactivitySuspendDaysDefault || "14", 10)],
-      ["digestEnabled", form.digestEnabled],
-      ["digestMailConnector", form.digestMailConnector],
-      ["digestMailTo", form.digestMailTo],
-      ["digestMailFrom", form.digestMailFrom],
-      ["autoSuspendOnAnomaly", form.autoSuspendOnAnomaly],
-    ];
-    for (const [key, value] of entries) {
-      await api.patch("/api/admin/settings", { key, value });
+    try {
+      await api.patch("/api/admin/settings", {
+        settings: {
+          gatewayName: form.gatewayName,
+          marketplaceUrl:
+            form.marketplaceUrl || data?.defaults.marketplaceUrl || "",
+          inactivitySuspendDaysDefault: parseInt(
+            form.inactivitySuspendDaysDefault || "14",
+            10,
+          ),
+          digestEnabled: form.digestEnabled,
+          digestMailConnector: form.digestMailConnector,
+          digestMailTo: form.digestMailTo,
+          digestMailFrom: form.digestMailFrom,
+          autoSuspendOnAnomaly: form.autoSuspendOnAnomaly,
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      setMessage("Saved.");
+    } catch (err) {
+      setMessage(
+        `Save failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
     }
-    queryClient.invalidateQueries({ queryKey: ["settings"] });
-    setMessage("Saved.");
   };
 
   const restoreBuiltins = async () => {
     if (!confirm("Restore the shipped built-in connector documents? Admin modifications to them are overwritten.")) return;
-    await api.post("/api/admin/connectors", { restoreBuiltins: true });
-    setMessage("Built-in connectors restored.");
+    try {
+      await api.post("/api/admin/connectors", { restoreBuiltins: true });
+      queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      setMessage("Built-in connectors restored.");
+    } catch (err) {
+      setMessage(
+        `Restore failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    }
   };
 
   const runSweep = async () => {
-    const result = await api.post<{ results: Record<string, number> }>("/api/admin/sweep", {});
-    setMessage(`Sweep done: ${JSON.stringify(result.results)}`);
+    try {
+      const result = await api.post<{ results: Record<string, number> }>("/api/admin/sweep", {});
+      setMessage(`Sweep done: ${JSON.stringify(result.results)}`);
+    } catch (err) {
+      setMessage(
+        `Sweep failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    }
   };
 
   const mailConnectors =
@@ -94,9 +118,27 @@ export default function SettingsPage() {
       (c) => c.resourceType === "mail" && c.credentialsConfigured,
     ) ?? [];
 
+  if (loadError) {
+    return (
+      <main className="p-8 space-y-3">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Settings</h1>
+        <p className="text-sm text-red-600 dark:text-red-400">
+          Couldn’t load settings: {loadError instanceof Error ? loadError.message : "unknown error"}
+        </p>
+        <button className="btn-secondary text-sm" onClick={() => refetch()}>
+          Retry
+        </button>
+      </main>
+    );
+  }
+
+  if (!data) {
+    return <main className="p-6 text-slate-500">Loading…</main>;
+  }
+
   return (
-    <main className="p-6 space-y-6 max-w-2xl">
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Settings</h1>
+    <main className="p-8 space-y-6 max-w-2xl">
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Settings</h1>
 
       {message && (
         <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200">

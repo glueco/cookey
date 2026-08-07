@@ -183,7 +183,9 @@ async function handle(request: NextRequest, { params }: RouteParams) {
 
   const endpointPath = `/r/${resourceType}/${provider}/${path?.join("/") || ""}`;
 
-  const result = await processGatewayRequest(request, body, {
+  // Auth gets the RAW BYTES: PoP signatures hash the body bytes, and the
+  // decoded string mangles non-UTF-8 payloads (http-passthrough uploads).
+  const result = await processGatewayRequest(request, rawBody, {
     resourceId,
     action,
     input,
@@ -210,9 +212,11 @@ async function handle(request: NextRequest, { params }: RouteParams) {
     );
   }
 
-  // clampMax silently caps values; the header makes it observable (4.3)
-  const clampHeader: Record<string, string> = result.metadata?.clamped
-    ? { "x-cookey-clamped": "true" }
+  // clampMax silently caps values; the header names the capped fields
+  // so app developers can see WHY output was shortened (4.3)
+  const clampHeader: Record<string, string> = result.metadata?.clampedFields
+    ?.length
+    ? { "x-cookey-clamped": result.metadata.clampedFields.join(",") }
     : {};
 
   // Streaming (or non-JSON passthrough) response

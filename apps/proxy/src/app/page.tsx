@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CookeyLogo } from "@/components/CookeyLogo";
 
 // ============================================
 // LANDING — the new story:
@@ -41,9 +42,11 @@ export default function LandingPage() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    // GET /api/admin/login always returns 200; the answer is in the body.
     fetch("/api/admin/login")
-      .then((res) => {
-        if (res.ok) {
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.authenticated) {
           router.push("/overview");
         } else {
           setChecking(false);
@@ -72,17 +75,22 @@ export default function LandingPage() {
   return (
     <main className="min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 pattern-dots opacity-30 pointer-events-none" />
-      <div className="absolute top-0 right-1/4 w-96 h-96 bg-primary-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-0 right-1/4 w-96 h-96 bg-primary-400/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-amber-300/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="relative z-10 max-w-5xl mx-auto px-6 py-16 space-y-16">
         {/* Hero */}
         <div className="grid lg:grid-cols-2 gap-10 items-center">
-          <div className="space-y-5">
-            <p className="text-4xl">🍪</p>
-            <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white leading-tight">
+          <div className="space-y-5 animate-fade-in-up">
+            <div className="flex items-center gap-3">
+              <CookeyLogo size={48} />
+              <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                Cookey
+              </span>
+            </div>
+            <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.1]">
               Connect your key safely —{" "}
-              <span className="text-primary-600 dark:text-primary-400">
+              <span className="text-gradient">
                 instead of trusting apps with it
               </span>
             </h1>
@@ -146,12 +154,14 @@ export default function LandingPage() {
         {/* Features */}
         <div className="grid sm:grid-cols-2 gap-5">
           {FEATURES.map((feature) => (
-            <div key={feature.title} className="card p-5">
-              <p className="text-2xl">{feature.icon}</p>
-              <h3 className="font-semibold text-slate-900 dark:text-white mt-2">
+            <div key={feature.title} className="card card-hover p-5">
+              <span className="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-primary-100/70 dark:bg-primary-900/30 text-xl">
+                {feature.icon}
+              </span>
+              <h3 className="font-semibold tracking-tight text-slate-900 dark:text-white mt-3">
                 {feature.title}
               </h3>
-              <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
+              <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
                 {feature.body}
               </p>
             </div>

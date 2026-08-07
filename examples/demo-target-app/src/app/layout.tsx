@@ -9,9 +9,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "System Check | Personal Resource Gateway",
+  title: "Cookey Demo App | Personal Resource Gateway",
   description:
-    "Diagnostic tool to test and verify your Personal Resource Gateway deployment",
+    "Reference consumer app for testing and verifying your Cookey Personal Resource Gateway deployment",
   keywords: ["proxy", "gateway", "api", "testing", "diagnostics"],
 };
 
@@ -19,8 +19,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+    { media: "(prefers-color-scheme: light)", color: "#fafaf9" },
+    { media: "(prefers-color-scheme: dark)", color: "#121110" },
   ],
 };
 

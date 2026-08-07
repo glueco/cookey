@@ -8,25 +8,25 @@
 
 :root {
   /* Colors */
-  --color-primary: 99 102 241; /* Indigo-500 */
-  --color-primary-dark: 79 70 229; /* Indigo-600 */
+  --color-primary: 223 141 43; /* Caramel amber 500 */
+  --color-primary-dark: 209 116 32; /* Caramel amber 600 */
   --color-success: 34 197 94; /* Green-500 */
   --color-warning: 245 158 11; /* Amber-500 */
   --color-error: 239 68 68; /* Red-500 */
 
-  /* Surfaces */
+  /* Surfaces (warm neutrals) */
   --surface-primary: 255 255 255;
-  --surface-secondary: 249 250 251;
-  --surface-tertiary: 243 244 246;
+  --surface-secondary: 250 250 249;
+  --surface-tertiary: 244 244 242;
 
   /* Text */
-  --text-primary: 17 24 39;
-  --text-secondary: 107 114 128;
-  --text-tertiary: 156 163 175;
+  --text-primary: 28 27 25;
+  --text-secondary: 117 116 109;
+  --text-tertiary: 163 162 155;
 
   /* Border */
-  --border-primary: 229 231 235;
-  --border-secondary: 209 213 219;
+  --border-primary: 230 229 225;
+  --border-secondary: 212 211 205;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
@@ -37,16 +37,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface-primary: 17 24 39;
-    --surface-secondary: 31 41 55;
-    --surface-tertiary: 55 65 81;
+    --surface-primary: 28 27 25;
+    --surface-secondary: 18 17 16;
+    --surface-tertiary: 43 42 39;
 
-    --text-primary: 249 250 251;
-    --text-secondary: 156 163 175;
-    --text-tertiary: 107 114 128;
+    --text-primary: 250 250 249;
+    --text-secondary: 163 162 155;
+    --text-tertiary: 117 116 109;
 
-    --border-primary: 55 65 81;
-    --border-secondary: 75 85 99;
+    --border-primary: 43 42 39;
+    --border-secondary: 68 67 61;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
     --shadow-md:
@@ -92,7 +92,7 @@ body {
   }
 
   .btn-primary {
-    @apply btn bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 active:bg-indigo-800;
+    @apply btn bg-gradient-to-b from-primary-500 to-primary-600 text-white shadow-sm hover:from-primary-600 hover:to-primary-700 focus:ring-primary-500 active:from-primary-700 active:to-primary-700;
   }
 
   .btn-secondary {
@@ -113,7 +113,7 @@ body {
 
   /* Input styles */
   .input {
-    @apply w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent;
+    @apply w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
   }
 
   .input-mono {
@@ -138,7 +138,12 @@ body {
   }
 
   .badge-info {
-    @apply badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400;
+    @apply badge bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-300;
+  }
+
+  /* Brand pill — "Cookey demo app" */
+  .badge-brand {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-wide uppercase bg-primary-50 text-primary-700 border border-primary-200 dark:bg-primary-950/60 dark:text-primary-300 dark:border-primary-900;
   }
 
   .badge-neutral {
@@ -151,7 +156,7 @@ body {
   }
 
   .method-post {
-    @apply badge bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 font-mono;
+    @apply badge bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300 font-mono;
   }
 
   /* Status indicator */
@@ -202,7 +207,7 @@ body {
   }
 
   .alert-info {
-    @apply alert bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200;
+    @apply alert bg-primary-50 dark:bg-primary-950/40 border-primary-200 dark:border-primary-900 text-primary-800 dark:text-primary-200;
   }
 
   .alert-success {
@@ -333,7 +338,7 @@ body {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1);
+  background: linear-gradient(135deg, #df8d2b, #e5a44e, #df8d2b);
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);

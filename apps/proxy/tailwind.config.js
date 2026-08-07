@@ -9,18 +9,36 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Brand accent: caramel amber (the cookie). Used for primary
+        // actions, active nav, focus states.
         primary: {
-          50: "#eff6ff",
-          100: "#dbeafe",
-          200: "#bfdbfe",
-          300: "#93c5fd",
-          400: "#60a5fa",
-          500: "#3b82f6",
-          600: "#2563eb",
-          700: "#1d4ed8",
-          800: "#1e40af",
-          900: "#1e3a8a",
-          950: "#172554",
+          50: "#fdf8ef",
+          100: "#faeed9",
+          200: "#f4dab2",
+          300: "#edc181",
+          400: "#e5a44e",
+          500: "#df8d2b",
+          600: "#d17420",
+          700: "#ad5a1d",
+          800: "#8b481e",
+          900: "#713c1c",
+          950: "#3d1d0c",
+        },
+        // Warm neutrals: pages use `slate-*` throughout, so the whole
+        // app shifts to this warmer scale from one place. Do not use
+        // Tailwind's cool slate values here.
+        slate: {
+          50: "#fafaf9",
+          100: "#f4f4f2",
+          200: "#e6e5e1",
+          300: "#d4d3cd",
+          400: "#a3a29b",
+          500: "#75746d",
+          600: "#57564f",
+          700: "#44433d",
+          800: "#2b2a27",
+          900: "#1c1b19",
+          950: "#121110",
         },
       },
       fontFamily: {

@@ -33,8 +33,11 @@ export async function createNotification(
 }
 
 /**
- * Create a notification unless an unread one with the same type and
- * payload key already exists (prevents cron re-runs from spamming).
+ * Create a notification unless one with the same type and dedupe key
+ * already exists — read OR unread. Deduping only against unread would
+ * make a dismissed notification reappear on every cron re-run; the
+ * dedupe keys themselves are period-scoped (grant+periodEnd, grant+day)
+ * so genuinely new occurrences still notify.
  */
 export async function createNotificationOnce(
   type: NotificationType,
@@ -46,7 +49,6 @@ export async function createNotificationOnce(
   const existing = await prisma.notification.findFirst({
     where: {
       type,
-      readAt: null,
       payload: { path: ["dedupeKey"], equals: dedupeKey },
     },
     select: { id: true },

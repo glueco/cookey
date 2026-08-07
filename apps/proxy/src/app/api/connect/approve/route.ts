@@ -6,12 +6,14 @@ import {
   GrantServiceError,
 } from "@/server/grants/service";
 import { GrantDecisionsSchema } from "@/server/grants/schema";
+import { checkAdminAuth } from "@/lib/admin-auth";
 
 // ============================================
 // POST /api/connect/approve
 // Complete a pending grant (approve with decisions, or deny).
-// Keyed by the grant id (the approval-link secret), matching the old
-// session-token trust model.
+// OWNER-ONLY: the grant id is NOT a secret (apps receive it from
+// /api/connect/prepare), so this endpoint must be admin-authenticated —
+// otherwise an app could self-approve its own grant and mint a token.
 // ============================================
 
 const ApproveRequestSchema = z.object({
@@ -21,6 +23,13 @@ const ApproveRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  if (!(await checkAdminAuth(request))) {
+    return NextResponse.json(
+      { error: "Unauthorized — sign in as the gateway owner to approve grants" },
+      { status: 401 },
+    );
+  }
+
   let body: unknown;
 
   try {
@@ -56,6 +65,7 @@ export async function POST(request: NextRequest) {
       const result = await approveGrant(
         parsed.data.sessionToken,
         parsed.data.decisions,
+        { gatewayUrl: request.nextUrl.origin },
       );
 
       return NextResponse.json({

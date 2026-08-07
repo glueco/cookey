@@ -14,6 +14,7 @@ describe.skipIf(!hasDb)("Postgres-backed limits", () => {
   let budget: typeof import("../budget");
   let prisma: typeof import("@/lib/db").prisma;
   let permissionId: string;
+  let grantId: string;
 
   beforeAll(async () => {
     nonce = await import("../nonce");
@@ -45,6 +46,7 @@ describe.skipIf(!hasDb)("Postgres-backed limits", () => {
       },
     });
     permissionId = permission.id;
+    grantId = grant.id;
 
     return async () => {
       await prisma.app.delete({ where: { id: app.id } });
@@ -73,29 +75,33 @@ describe.skipIf(!hasDb)("Postgres-backed limits", () => {
 
   it("budget: request counts increment at admission and deny over quota", async () => {
     for (let i = 1; i <= 3; i++) {
-      const result = await budget.checkAndIncrementRequestUsage(permissionId, {
-        dailyQuota: 3,
-      });
+      const result = await budget.checkAndIncrementRequestUsage(
+        permissionId,
+        grantId,
+        { dailyQuota: 3 },
+      );
       expect(result.allowed).toBe(true);
       expect(result.used).toBe(i);
     }
 
-    const over = await budget.checkAndIncrementRequestUsage(permissionId, {
-      dailyQuota: 3,
-    });
+    const over = await budget.checkAndIncrementRequestUsage(
+      permissionId,
+      grantId,
+      { dailyQuota: 3 },
+    );
     expect(over.allowed).toBe(false);
     expect(over.used).toBe(4);
   });
 
   it("budget: token budget denies only once usage reaches the cap", async () => {
-    const before = await budget.checkTokenBudget(permissionId, {
+    const before = await budget.checkTokenBudget(grantId, {
       dailyTokenBudget: 100,
     });
     expect(before.allowed).toBe(true);
 
     await budget.recordTokenUsage(permissionId, 100);
 
-    const after = await budget.checkTokenBudget(permissionId, {
+    const after = await budget.checkTokenBudget(grantId, {
       dailyTokenBudget: 100,
     });
     expect(after.allowed).toBe(false);

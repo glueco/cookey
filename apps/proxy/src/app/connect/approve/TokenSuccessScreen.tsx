@@ -39,7 +39,9 @@ export function TokenSuccessScreen({ token, appName, boundResources }: Props) {
     },
     {
       label: "Python (openai client)",
-      code: `from openai import OpenAI
+      code: `import os
+
+from openai import OpenAI
 
 client = OpenAI(
     base_url="${gateway}${providerPath}/v1",

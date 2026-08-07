@@ -50,6 +50,8 @@ interface Props {
   requestedDurationMs: number | null;
   /** days parsed from document.renewal?.period */
   requestedRenewalDays: number | null;
+  /** Owner's default inactivity-suspend window (admin setting) */
+  defaultInactivitySuspendDays: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -69,15 +71,28 @@ export default function ApprovalForm({
   connectorInfo,
   requestedDurationMs,
   requestedRenewalDays,
+  defaultInactivitySuspendDays,
 }: Props) {
   const popAvailable = !!doc.publicKey;
 
   const [auth, setAuth] = useState<"bearer" | "pop">(
     doc.auth === "pop" && popAvailable ? "pop" : "bearer",
   );
-  const [durationMs, setDurationMs] = useState<number | null>(
-    requestedDurationMs ?? 30 * DAY_MS,
-  );
+  const initialDurationMs = requestedDurationMs ?? 30 * DAY_MS;
+  const [durationMs, setDurationMs] = useState<number | null>(initialDurationMs);
+  // If the app asked for a non-preset duration, surface it as an explicit
+  // option — otherwise the select would show "24 hours" while state holds
+  // something else (silent over-granting).
+  const durationOptions = useMemo(() => {
+    if (DURATION_OPTIONS.some((option) => option.ms === initialDurationMs)) {
+      return DURATION_OPTIONS;
+    }
+    const days = Math.max(1, Math.round(initialDurationMs / DAY_MS));
+    return [
+      { label: `As requested (~${days} days)`, ms: initialDurationMs },
+      ...DURATION_OPTIONS,
+    ];
+  }, [initialDurationMs]);
   const [renewable, setRenewable] = useState(requestedRenewalDays !== null);
   const [renewalDays, setRenewalDays] = useState(requestedRenewalDays ?? 30);
   const [budget, setBudget] = useState({
@@ -89,7 +104,9 @@ export default function ApprovalForm({
   const [loosenedAck, setLoosenedAck] = useState(false);
   const [egressIps, setEgressIps] = useState("");
   const [allowBrowser, setAllowBrowser] = useState(doc.runtime === "browser");
-  const [inactivityDays, setInactivityDays] = useState("14");
+  const [inactivityDays, setInactivityDays] = useState(
+    String(defaultInactivitySuspendDays),
+  );
 
   // Wildcard bindings: request index → selected resource ids
   const wildcardRequests = doc.requests
@@ -292,7 +309,19 @@ export default function ApprovalForm({
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Request failed");
+      if (!response.ok) {
+        // Surface field-level validation details instead of discarding them
+        const details = Array.isArray(data.details)
+          ? (data.details as Array<{ path: string; message: string }>)
+              .map((detail) => `${detail.path}: ${detail.message}`)
+              .join("\n")
+          : "";
+        throw new Error(
+          [data.error || "Request failed", details]
+            .filter(Boolean)
+            .join("\n"),
+        );
+      }
 
       if (decision === "deny") {
         setFinished("denied");
@@ -510,7 +539,7 @@ export default function ApprovalForm({
               )
             }
           >
-            {DURATION_OPTIONS.map((option) => (
+            {durationOptions.map((option) => (
               <option key={option.label} value={String(option.ms)}>
                 {option.label}
               </option>
@@ -530,9 +559,10 @@ export default function ApprovalForm({
             disabled={!renewable}
             className="input text-sm w-20"
             value={renewalDays}
-            onChange={(e) =>
-              setRenewalDays(parseInt(e.target.value || "30", 10))
-            }
+            onChange={(e) => {
+              const parsed = parseInt(e.target.value || "30", 10);
+              setRenewalDays(Number.isNaN(parsed) ? 30 : Math.max(1, parsed));
+            }}
           />
           <span className="text-sm text-slate-500">days</span>
         </div>
@@ -681,7 +711,7 @@ export default function ApprovalForm({
       </details>
 
       {error && (
-        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300 whitespace-pre-line">
           {error}
         </div>
       )}

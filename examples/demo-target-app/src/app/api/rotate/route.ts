@@ -5,9 +5,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { verifyConnectionHandle, createConnectionHandle } from "@/lib/handle.server";
+import { getActiveSeed, setActiveSeed } from "@/lib/gateway.server";
 import {
   createGatewayFetch,
-  loadSeedFromEnv,
   publicKeyFromSeed,
   base64UrlEncode,
 } from "@glueco/sdk";
@@ -37,10 +37,10 @@ export async function POST(request: NextRequest) {
 
     const { gatewayUrl, appId } = handlePayload;
 
-    // Load current seed from env
+    // Load the active seed (rotation override, or env)
     let currentSeed: Uint8Array;
     try {
-      currentSeed = loadSeedFromEnv();
+      currentSeed = getActiveSeed();
     } catch {
       return NextResponse.json(
         { error: "GLUECO_PRIVATE_KEY not configured" },
@@ -73,11 +73,11 @@ export async function POST(request: NextRequest) {
 
     const newPublicKey = publicKeyFromSeed(nextSeed);
 
-    // Create gateway fetch with CURRENT seed (uses GLUECO_PRIVATE_KEY from env)
+    // Create gateway fetch signing with the CURRENT active seed
     const gatewayFetch = createGatewayFetch({
       appId,
       proxyUrl: gatewayUrl,
-      // seed is loaded from env automatically
+      seed: currentSeed,
     });
 
     // Call proxy rotate endpoint
@@ -97,13 +97,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The gateway now only accepts the new key - switch the active signing
+    // seed so subsequent requests from this process keep working
+    setActiveSeed(nextSeed);
+
     // Create new connection handle (same gatewayUrl/appId, fresh expiry)
     const newHandle = createConnectionHandle(gatewayUrl, appId);
 
     return NextResponse.json({
       status: "rotated",
       newHandle,
-      message: "Key rotated successfully. Update GLUECO_PRIVATE_KEY to the new key.",
+      message:
+        "Key rotated successfully. The new key is active for this server process only and resets on restart - update GLUECO_PRIVATE_KEY in your environment to persist it.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

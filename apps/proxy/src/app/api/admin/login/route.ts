@@ -4,6 +4,7 @@ import {
   clearAdminSession,
   getAdminSessionInfo,
 } from "@/lib/auth-cookie";
+import { getGatewayName } from "@/server/settings";
 
 // ============================================
 // POST /api/admin/login
@@ -60,10 +61,15 @@ export async function DELETE() {
 // ============================================
 
 export async function GET() {
-  const sessionInfo = await getAdminSessionInfo();
+  const [sessionInfo, gatewayName] = await Promise.all([
+    getAdminSessionInfo(),
+    // Display name only — not sensitive (it appears on approval screens)
+    getGatewayName().catch(() => "Cookey Gateway"),
+  ]);
 
   return NextResponse.json({
     authenticated: sessionInfo.valid,
     expiresAt: sessionInfo.expiresAt?.toISOString(),
+    gatewayName,
   });
 }

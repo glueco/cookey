@@ -125,7 +125,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             { status: 400 },
           );
         }
-        const result = await approveGrant(id, parsed.data.decisions);
+        const result = await approveGrant(id, parsed.data.decisions, {
+          gatewayUrl: request.nextUrl.origin,
+        });
         return NextResponse.json({
           grant: result.grant,
           ...(result.token && { token: result.token }),

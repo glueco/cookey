@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   try {
     const grant = await createPendingGrant(parsed.data.grant);
 
-    const gatewayUrl = process.env.GATEWAY_URL ?? "";
+    const gatewayUrl = process.env.GATEWAY_URL || request.nextUrl.origin;
     const expiresAt = new Date(
       Date.now() + APPROVAL_WINDOW_MINUTES * 60 * 1000,
     );

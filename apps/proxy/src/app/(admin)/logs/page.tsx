@@ -45,7 +45,7 @@ export default function LogsPage() {
   if (connectorId) query.set("connectorId", connectorId);
   query.set("page", String(page));
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["logs", decision, connectorId, page],
     queryFn: () =>
       api.get<{ logs: LogRow[]; total: number; pageSize: number }>(
@@ -56,8 +56,8 @@ export default function LogsPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <main className="p-6 space-y-4 max-w-5xl">
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Logs</h1>
+    <main className="p-8 space-y-4 max-w-5xl">
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Logs</h1>
 
       <div className="flex flex-wrap gap-2">
         <select
@@ -87,6 +87,13 @@ export default function LogsPage() {
 
       {isLoading ? (
         <p className="text-slate-500">Loading…</p>
+      ) : error ? (
+        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300 space-y-2">
+          <p>Failed to load logs: {error.message}</p>
+          <button className="btn-secondary text-xs" onClick={() => refetch()}>
+            Retry
+          </button>
+        </div>
       ) : (
         <>
           <div className="overflow-x-auto card">
@@ -134,7 +141,7 @@ export default function LogsPage() {
                     </td>
                   </tr>
                 ))}
-                {data?.logs.length === 0 && (
+                {data && data.logs.length === 0 && (
                   <tr>
                     <td colSpan={6} className="p-4 text-center text-sm text-slate-500">
                       No log entries match.

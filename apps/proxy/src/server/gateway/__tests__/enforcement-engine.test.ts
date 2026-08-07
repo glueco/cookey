@@ -105,12 +105,12 @@ describe("clampMax", () => {
     expect(body.max_tokens).toBe(100);
   });
 
-  it("reports clamping so the x-cookey-clamped header can be set", () => {
+  it("reports clamped field names so the x-cookey-clamped header can be set", () => {
     const clamped = applyEnforcement(CHAT_ACTION, CONNECTOR, { maxOutputTokens: 512 }, { model: "default-a", max_tokens: 9999 });
-    expect(clamped.allowed && clamped.clamped).toBe(true);
+    expect(clamped.allowed && clamped.clampedFields).toEqual(["max_tokens"]);
 
     const untouched = applyEnforcement(CHAT_ACTION, CONNECTOR, { maxOutputTokens: 512 }, { model: "default-a", max_tokens: 10 });
-    expect(untouched.allowed && !untouched.clamped).toBe(true);
+    expect(untouched.allowed && untouched.clampedFields.length === 0).toBe(true);
   });
 });
 

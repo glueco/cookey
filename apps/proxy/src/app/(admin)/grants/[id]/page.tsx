@@ -96,10 +96,28 @@ function UsageBar({ used, cap, label }: { used: number; cap: number | null; labe
 
 export default function GrantDetailPage() {
   const params = useParams<{ id: string }>();
-  const { data, isLoading, refetch } = useGrantDetail(params.id);
+  const { data, isLoading, error, refetch } = useGrantDetail(params.id);
   const action = useGrantAction(params.id);
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  if (error) {
+    return (
+      <main className="p-8 space-y-3">
+        <p className="text-sm text-red-600 dark:text-red-400">
+          Failed to load grant: {error.message}
+        </p>
+        <div className="flex items-center gap-3">
+          <button className="btn-secondary text-sm" onClick={() => refetch()}>
+            Retry
+          </button>
+          <Link href="/grants" className="text-sm text-slate-400 underline">
+            ← All grants
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   if (isLoading || !data) {
     return <main className="p-6 text-slate-500">Loading…</main>;
@@ -129,9 +147,9 @@ export default function GrantDetailPage() {
   };
 
   return (
-    <main className="p-6 space-y-6 max-w-4xl">
+    <main className="p-8 space-y-6 max-w-4xl">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           {doc.app?.name ?? "Grant"}
         </h1>
         <Link href="/grants" className="text-sm text-slate-400 underline">

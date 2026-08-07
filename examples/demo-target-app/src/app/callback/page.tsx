@@ -5,17 +5,30 @@ interface PageProps {
     status?: string;
     app_id?: string;
     expires_at?: string;
+    code?: string;
+    gateway?: string;
   }>;
 }
 
 /**
  * Callback page after proxy approval.
  * Since we're using client-side session storage, we just redirect
- * back to the home page with the query params - the home page
- * will handle completing the connection.
+ * to the page that handles the params:
+ * - Bearer claim-code callback (?code=…&gateway=…) → /bearer
+ * - PoP approval callback (?status=approved&app_id=…) → / (home page
+ *   completes the connection from the pending session)
  */
 export default async function CallbackPage({ searchParams }: PageProps) {
   const resolvedParams = await searchParams;
+
+  // Bearer claim-code callback is handled by /bearer
+  if (resolvedParams.code && resolvedParams.gateway) {
+    const bearerParams = new URLSearchParams({
+      code: resolvedParams.code,
+      gateway: resolvedParams.gateway,
+    });
+    redirect(`/bearer?${bearerParams.toString()}`);
+  }
 
   // Build redirect URL with params
   const params = new URLSearchParams();

@@ -78,17 +78,11 @@ export async function authenticateRequest(
       };
     }
 
-    // 4. Check nonce for replay protection
-    const nonceValid = await checkAndSetNonce(headers.nonce);
-    if (!nonceValid) {
-      return {
-        success: false,
-        error: "Replay detected: nonce already used",
-        errorCode: ErrorCode.ERR_INVALID_NONCE,
-      };
-    }
-
-    // 5. Lookup app and verify status
+    // 4. Lookup app and verify status
+    // (Nonce consumption happens AFTER signature verification — an
+    // unauthenticated caller must not be able to burn nonces or grow
+    // the PopNonce table, and a failed signature must not consume the
+    // nonce the client will legitimately retry with.)
     const app = await prisma.app.findUnique({
       where: { id: headers.appId },
       include: {
@@ -122,7 +116,7 @@ export async function authenticateRequest(
       };
     }
 
-    // 6. Build canonical request string (v1: path includes query)
+    // 5. Build canonical request string (v1: path includes query)
     const url = new URL(request.url);
     const canonicalString = buildCanonicalRequestV1({
       method: request.method,
@@ -133,7 +127,7 @@ export async function authenticateRequest(
       bodyHash: hashBody(body),
     });
 
-    // 7. Verify signature against any active credential
+    // 6. Verify signature against any active credential
     for (const credential of app.credentials) {
       const valid = await verifySignatureWithCanonical(
         credential.publicKey,
@@ -142,6 +136,15 @@ export async function authenticateRequest(
       );
 
       if (valid) {
+        // 7. Consume the nonce only for a correctly-signed request
+        const nonceValid = await checkAndSetNonce(headers.nonce);
+        if (!nonceValid) {
+          return {
+            success: false,
+            error: "Replay detected: nonce already used",
+            errorCode: ErrorCode.ERR_INVALID_NONCE,
+          };
+        }
         return {
           success: true,
           appId: headers.appId,

@@ -6,20 +6,20 @@
    CSS CUSTOM PROPERTIES
    ============================================ */
 :root {
-  /* Colors */
-  --foreground-rgb: 15, 23, 42;
-  --background-start-rgb: 248, 250, 252;
-  --background-end-rgb: 241, 245, 249;
+  /* Colors — warm paper neutrals (match tailwind.config slate scale) */
+  --foreground-rgb: 28, 27, 25;
+  --background-start-rgb: 250, 250, 249;
+  --background-end-rgb: 244, 244, 242;
 
-  /* Brand Colors */
-  --primary-50: 239, 246, 255;
-  --primary-100: 219, 234, 254;
-  --primary-500: 59, 130, 246;
-  --primary-600: 37, 99, 235;
-  --primary-700: 29, 78, 216;
+  /* Brand Colors — caramel amber (match tailwind.config primary scale) */
+  --primary-50: 253, 248, 239;
+  --primary-100: 250, 238, 217;
+  --primary-500: 223, 141, 43;
+  --primary-600: 209, 116, 32;
+  --primary-700: 173, 90, 29;
 
   /* Accent */
-  --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --accent-gradient: linear-gradient(135deg, #e5a44e 0%, #ad5a1d 100%);
 
   /* Shadows */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
@@ -28,7 +28,7 @@
     0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-xl:
     0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  --shadow-glow: 0 0 20px rgb(59 130 246 / 0.3);
+  --shadow-glow: 0 0 20px rgb(223 141 43 / 0.3);
 
   /* Border Radius */
   --radius-sm: 0.375rem;
@@ -44,21 +44,22 @@
   --transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 248, 250, 252;
-    --background-start-rgb: 15, 23, 42;
-    --background-end-rgb: 30, 41, 59;
+/* Dark theme is class-driven (html.dark), set before paint by the root
+   layout's inline script — never by the OS media query alone, so the
+   in-app ThemeToggle always wins. */
+:root.dark {
+  --foreground-rgb: 244, 244, 242;
+  --background-start-rgb: 18, 17, 16;
+  --background-end-rgb: 28, 27, 25;
 
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-    --shadow-md:
-      0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
-    --shadow-lg:
-      0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
-    --shadow-xl:
-      0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.4);
-    --shadow-glow: 0 0 25px rgb(59 130 246 / 0.4);
-  }
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md:
+    0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-lg:
+    0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+  --shadow-xl:
+    0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+  --shadow-glow: 0 0 25px rgb(223 141 43 / 0.35);
 }
 
 /* ============================================
@@ -98,13 +99,11 @@ body {
   background: rgb(148 163 184 / 0.7);
 }
 
-@media (prefers-color-scheme: dark) {
-  ::-webkit-scrollbar-thumb {
-    background: rgb(71 85 105 / 0.5);
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgb(71 85 105 / 0.7);
-  }
+:root.dark ::-webkit-scrollbar-thumb {
+  background: rgb(71 85 105 / 0.5);
+}
+:root.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgb(71 85 105 / 0.7);
 }
 
 /* ============================================
@@ -296,10 +295,10 @@ body {
   }
 
   .btn-primary {
-    @apply btn bg-gradient-to-r from-blue-600 to-blue-700;
-    @apply text-white shadow-md shadow-blue-500/25;
-    @apply hover:from-blue-700 hover:to-blue-800 hover:shadow-lg hover:shadow-blue-500/30;
-    @apply focus:ring-blue-500;
+    @apply btn bg-gradient-to-b from-primary-500 to-primary-600;
+    @apply text-white shadow-md shadow-primary-600/25;
+    @apply hover:from-primary-600 hover:to-primary-700 hover:shadow-lg hover:shadow-primary-600/30;
+    @apply focus:ring-primary-500;
   }
 
   .btn-secondary {
@@ -317,7 +316,7 @@ body {
   }
 
   .btn-danger {
-    @apply btn bg-gradient-to-r from-red-600 to-red-700;
+    @apply btn bg-gradient-to-b from-red-600 to-red-700;
     @apply text-white shadow-md shadow-red-500/25;
     @apply hover:from-red-700 hover:to-red-800 hover:shadow-lg hover:shadow-red-500/30;
     @apply focus:ring-red-500;
@@ -345,7 +344,7 @@ body {
     @apply text-slate-900 dark:text-slate-100;
     @apply placeholder:text-slate-400 dark:placeholder:text-slate-500;
     @apply transition-all duration-200;
-    @apply focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500;
     @apply disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
@@ -507,7 +506,7 @@ body {
 @layer utilities {
   /* Text Gradient */
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-500 to-primary-700;
   }
 
   .text-gradient-emerald {

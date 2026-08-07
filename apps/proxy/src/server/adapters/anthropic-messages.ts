@@ -45,7 +45,10 @@ function convertToAnthropicFormat(request: ChatCompletionRequest): {
 
   for (const msg of request.messages) {
     if (msg.role === "system") {
-      system = typeof msg.content === "string" ? msg.content : "";
+      // Multiple system messages concatenate — keeping only the last
+      // would silently drop earlier instructions.
+      const text = typeof msg.content === "string" ? msg.content : "";
+      system = system ? `${system}\n\n${text}` : text;
     } else if (msg.role === "user" || msg.role === "assistant") {
       const content =
         typeof msg.content === "string" ? msg.content : msg.content ?? "";
@@ -183,35 +186,58 @@ function createStreamTransformer(): TransformStream<Uint8Array, Uint8Array> {
   let buffer = "";
   let messageId = "";
   let model = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let doneEmitted = false;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
-  return new TransformStream({
-    transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true });
+  const emitDone = (controller: TransformStreamDefaultController<Uint8Array>) => {
+    if (doneEmitted) return;
+    doneEmitted = true;
+    // Final usage chunk (OpenAI stream_options-style) so downstream
+    // token accounting sees streamed usage.
+    if (inputTokens > 0 || outputTokens > 0) {
+      const usageChunk = {
+        id: messageId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [],
+        usage: {
+          prompt_tokens: inputTokens,
+          completion_tokens: outputTokens,
+          total_tokens: inputTokens + outputTokens,
+        },
+      };
+      controller.enqueue(
+        encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`),
+      );
+    }
+    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+  };
 
-      while (true) {
-        const newlineIndex = buffer.indexOf("\n");
-        if (newlineIndex === -1) break;
+  const processLine = (
+    rawLine: string,
+    controller: TransformStreamDefaultController<Uint8Array>,
+  ) => {
+    const line = rawLine.trim();
+    if (!line.startsWith("data: ")) return;
 
-        const line = buffer.slice(0, newlineIndex).trim();
-        buffer = buffer.slice(newlineIndex + 1);
+    const data = line.slice(6);
+    if (data === "[DONE]") {
+      emitDone(controller);
+      return;
+    }
 
-        if (!line.startsWith("data: ")) continue;
+    try {
+      const event = JSON.parse(data);
 
-        const data = line.slice(6);
-        if (data === "[DONE]") {
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          continue;
-        }
-
-        try {
-          const event = JSON.parse(data);
-
-          if (event.type === "message_start") {
-            messageId = event.message?.id || "";
-            model = event.message?.model || "";
-          } else if (event.type === "content_block_delta") {
+      if (event.type === "message_start") {
+        messageId = event.message?.id || "";
+        model = event.message?.model || "";
+        inputTokens = event.message?.usage?.input_tokens ?? 0;
+      } else if (event.type === "content_block_delta") {
             if (event.delta?.type === "text_delta") {
               const openAIChunk = {
                 id: messageId,
@@ -231,6 +257,9 @@ function createStreamTransformer(): TransformStream<Uint8Array, Uint8Array> {
               );
             }
           } else if (event.type === "message_delta") {
+            if (typeof event.usage?.output_tokens === "number") {
+              outputTokens = event.usage.output_tokens;
+            }
             if (event.delta?.stop_reason) {
               let finishReason = "stop";
               if (event.delta.stop_reason === "max_tokens")
@@ -251,13 +280,32 @@ function createStreamTransformer(): TransformStream<Uint8Array, Uint8Array> {
                 encoder.encode(`data: ${JSON.stringify(openAIChunk)}\n\n`),
               );
             }
-          } else if (event.type === "message_stop") {
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          }
-        } catch {
-          // Ignore parse errors on individual chunks
-        }
+      } else if (event.type === "message_stop") {
+        emitDone(controller);
       }
+    } catch {
+      // Ignore parse errors on individual chunks
+    }
+  };
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+
+      while (true) {
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex === -1) break;
+
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        processLine(line, controller);
+      }
+    },
+    flush(controller) {
+      // A final SSE line without a trailing newline must not be dropped,
+      // and clients must always see a terminating [DONE].
+      if (buffer) processLine(buffer, controller);
+      emitDone(controller);
     },
   });
 }

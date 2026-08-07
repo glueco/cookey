@@ -123,10 +123,12 @@ function BearerPageInner() {
   }
 
   async function send() {
-    if (!input.trim() || !grant || !selectedModel) return;
-    const resource = grant.resources.find((r) =>
-      r.models.includes(selectedModel),
-    );
+    if (!input.trim() || !grant || !selectedModel.trim()) return;
+    // Match by model when the grant lists models; fall back to the first
+    // LLM resource for free-text model names (grant exposed no model list)
+    const resource =
+      grant.resources.find((r) => r.models.includes(selectedModel)) ??
+      grant.resources.find((r) => r.resourceId.startsWith("llm:"));
     if (!resource) return;
     const provider = resource.resourceId.split(":")[1];
 
@@ -146,7 +148,7 @@ function BearerPageInner() {
           gatewayUrl,
           token,
           provider,
-          model: selectedModel,
+          model: selectedModel.trim(),
           messages: nextMessages,
         }),
       });
@@ -166,41 +168,56 @@ function BearerPageInner() {
   const llmResources = grant?.resources.filter((r) =>
     r.resourceId.startsWith("llm:"),
   );
+  const availableModels =
+    llmResources?.flatMap((resource) => resource.models) ?? [];
 
   return (
     <main className="min-h-screen max-w-2xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Bearer connection</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Static <code>ck_</code> token + the stock <code>openai</code> client.
-          No Cookey SDK anywhere on this page.
+      <div className="space-y-2">
+        <span className="badge-brand">Cookey demo app</span>
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-50">
+          Bearer connection
+        </h1>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          A static <code className="code-inline">ck_</code> token plus the stock{" "}
+          <code className="code-inline">openai</code> client — no Cookey SDK
+          anywhere on this page.
         </p>
-        <a href="/" className="text-sm text-blue-600 underline">
+        <a
+          href="/"
+          className="inline-block text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 underline underline-offset-4 decoration-primary-300 dark:decoration-primary-700"
+        >
           ← PoP connection demo
         </a>
       </div>
 
       {error && (
-        <div className="p-3 rounded bg-red-50 border border-red-200 text-sm text-red-700">
-          {error}
+        <div className="alert-error animate-fade-in">
+          <p className="text-sm">{error}</p>
         </div>
       )}
 
       {!grant ? (
-        <div className="space-y-3 border rounded-lg p-4">
-          <label className="block text-sm">
-            Gateway URL
+        <div className="card p-6 space-y-4 animate-fade-in">
+          <div>
+            <h2 className="section-title mb-1">Connect to a gateway</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Paste your gateway URL and access token to open a session.
+            </p>
+          </div>
+          <label className="block">
+            <span className="label">Gateway URL</span>
             <input
-              className="mt-1 w-full border rounded px-3 py-2 text-sm"
+              className="input text-sm"
               placeholder="http://localhost:3000"
               value={gatewayUrl}
               onChange={(e) => setGatewayUrl(e.target.value)}
             />
           </label>
-          <label className="block text-sm">
-            Access token
+          <label className="block">
+            <span className="label">Access token</span>
             <input
-              className="mt-1 w-full border rounded px-3 py-2 text-sm font-mono"
+              className="input-mono"
               placeholder="ck_…"
               type="password"
               value={token}
@@ -208,7 +225,7 @@ function BearerPageInner() {
             />
           </label>
           <button
-            className="px-4 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+            className="btn-primary w-full"
             disabled={busy || !gatewayUrl || !token}
             onClick={() => connect(gatewayUrl.trim(), token.trim())}
           >
@@ -217,79 +234,132 @@ function BearerPageInner() {
         </div>
       ) : (
         <>
-          <div className="border rounded-lg p-4 text-sm space-y-1">
-            <div className="flex items-center justify-between">
-              <span>
-                🟢 Connected to <code>{gatewayUrl}</code>
+          <div className="card p-5 text-sm space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="status-dot-success flex-shrink-0" />
+                <span className="font-medium text-gray-900 dark:text-gray-100">
+                  Connected to
+                </span>{" "}
+                <code className="code-inline text-xs truncate">{gatewayUrl}</code>
               </span>
-              <button className="text-red-600 underline" onClick={disconnect}>
+              <button
+                className="btn-ghost text-xs py-1 px-2 text-red-600 dark:text-red-400 flex-shrink-0"
+                onClick={disconnect}
+              >
                 Disconnect
               </button>
             </div>
-            <p className="text-gray-500">
-              Grant {grant.grantId.slice(0, 8)}… · status {grant.status} ·
-              expires{" "}
+            <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+              Grant{" "}
+              <code className="code-inline text-xs">
+                {grant.grantId.slice(0, 8)}…
+              </code>{" "}
+              · status {grant.status} · expires{" "}
               {grant.currentPeriodEnd ?? grant.expiresAt ?? "never"}
             </p>
             {llmResources && llmResources.length > 0 && (
-              <label className="block pt-2">
-                Model
-                <select
-                  className="mt-1 w-full border rounded px-2 py-1.5"
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                >
-                  {llmResources.flatMap((resource) =>
-                    resource.models.map((model) => (
-                      <option key={`${resource.resourceId}:${model}`} value={model}>
-                        {model} ({resource.resourceId})
-                      </option>
-                    )),
-                  )}
-                </select>
+              <label className="block pt-1">
+                <span className="label">Model</span>
+                {availableModels.length > 0 ? (
+                  <select
+                    className="input text-sm"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                  >
+                    {llmResources.flatMap((resource) =>
+                      resource.models.map((model) => (
+                        <option key={`${resource.resourceId}:${model}`} value={model}>
+                          {model} ({resource.resourceId})
+                        </option>
+                      )),
+                    )}
+                  </select>
+                ) : (
+                  <input
+                    className="input-mono"
+                    placeholder="model name, e.g. llama-3.3-70b-versatile"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                  />
+                )}
               </label>
             )}
           </div>
 
-          <div className="border rounded-lg p-4 space-y-3">
-            <div className="space-y-2 max-h-80 overflow-y-auto">
+          <div className="card overflow-hidden animate-fade-in">
+            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Chat
+              </h2>
+              {selectedModel.trim() && (
+                <span className="badge-neutral font-mono text-[11px]">
+                  {selectedModel.trim()}
+                </span>
+              )}
+            </div>
+            <div className="p-5 space-y-3 max-h-80 overflow-y-auto bg-gray-50/60 dark:bg-gray-950/40">
               {messages.length === 0 && (
-                <p className="text-sm text-gray-400">
-                  Say something to test the gateway round-trip.
-                </p>
+                <div className="py-10 text-center space-y-1">
+                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                    No messages yet
+                  </p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    Say something to test the gateway round-trip.
+                  </p>
+                </div>
               )}
               {messages.map((message, i) => (
                 <div
                   key={i}
-                  className={`text-sm p-2 rounded ${
-                    message.role === "user"
-                      ? "bg-blue-50 text-blue-900"
-                      : "bg-gray-50 text-gray-800"
+                  className={`flex ${
+                    message.role === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
-                  <span className="font-semibold">
-                    {message.role === "user" ? "You" : "Assistant"}:
-                  </span>{" "}
-                  {message.content}
+                  <div
+                    className={`max-w-[85%] px-4 py-2.5 text-sm rounded-2xl shadow-sm ${
+                      message.role === "user"
+                        ? "bg-gradient-to-b from-primary-500 to-primary-600 text-white rounded-br-md"
+                        : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-bl-md"
+                    }`}
+                  >
+                    <span
+                      className={`block text-[11px] font-semibold mb-0.5 ${
+                        message.role === "user"
+                          ? "text-primary-100"
+                          : "text-gray-400 dark:text-gray-500"
+                      }`}
+                    >
+                      {message.role === "user" ? "You" : "Assistant"}
+                    </span>
+                    <span className="whitespace-pre-wrap">{message.content}</span>
+                  </div>
                 </div>
               ))}
             </div>
-            <div className="flex gap-2">
-              <input
-                className="flex-1 border rounded px-3 py-2 text-sm"
-                placeholder="Message…"
-                value={input}
-                disabled={busy}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && send()}
-              />
-              <button
-                className="px-4 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
-                disabled={busy || !input.trim()}
-                onClick={send}
-              >
-                {busy ? "…" : "Send"}
-              </button>
+            <div className="p-4 border-t border-gray-200 dark:border-gray-800 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1 text-sm"
+                  placeholder="Message…"
+                  value={input}
+                  disabled={busy}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && send()}
+                />
+                <button
+                  className="btn-primary px-5"
+                  disabled={busy || !input.trim() || !selectedModel.trim()}
+                  onClick={send}
+                >
+                  {busy ? "…" : "Send"}
+                </button>
+              </div>
+              {!selectedModel.trim() && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Pick a model first
+                </p>
+              )}
             </div>
           </div>
         </>

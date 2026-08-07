@@ -100,7 +100,8 @@ export async function resolveAuth(
       };
     }
 
-    recordGrantUse(grant, clientIp).catch(() => {
+    // Awaited so lastUsedAt reliably advances (feeds the inactivity sweep)
+    await recordGrantUse(grant, clientIp).catch(() => {
       // Usage tracking must never fail the request
     });
 

@@ -41,6 +41,12 @@ describe("isPrivateIp", () => {
     expect(isPrivateIp("172.32.0.1")).toBe(false);
     expect(isPrivateIp("2606:4700::1111")).toBe(false);
   });
+
+  it("blocks hex-spelled IPv4-mapped IPv6 loopback/private", () => {
+    expect(isPrivateIp("::ffff:7f00:1")).toBe(true); // 127.0.0.1
+    expect(isPrivateIp("::ffff:c0a8:101")).toBe(true); // 192.168.1.1
+    expect(isPrivateIp("::ffff:808:808")).toBe(false); // 8.8.8.8 (public)
+  });
 });
 
 describe("assertUrlSafe", () => {
@@ -70,5 +76,26 @@ describe("assertUrlSafe", () => {
     await expect(
       assertUrlSafe(new URL("https://localhost/x")),
     ).rejects.toThrowError(SafeFetchError);
+  });
+
+  it("rejects non-canonical numeric IP literals outright", async () => {
+    // decimal spelling of 127.0.0.1
+    await expect(
+      assertUrlSafe(new URL("https://2130706433/")),
+    ).rejects.toThrowError(/non-canonical|private/);
+    // octal spelling of 127.0.0.1
+    await expect(
+      assertUrlSafe(new URL("https://0177.0.0.1/")),
+    ).rejects.toThrowError(/non-canonical|private/);
+    // short form
+    await expect(
+      assertUrlSafe(new URL("https://127.1/")),
+    ).rejects.toThrowError(/non-canonical|private/);
+  });
+
+  it("rejects hex-form IPv4-mapped IPv6 private literals", async () => {
+    await expect(
+      assertUrlSafe(new URL("https://[::ffff:7f00:1]/")),
+    ).rejects.toThrowError(/private address/);
   });
 });

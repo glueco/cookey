@@ -72,9 +72,9 @@ export default function AddAppPage() {
   };
 
   return (
-    <main className="p-6 space-y-6 max-w-2xl">
+    <main className="p-8 space-y-6 max-w-2xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Add app</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Add app</h1>
         <Link href="/grants" className="text-sm text-slate-400 underline">
           ← Grants
         </Link>
