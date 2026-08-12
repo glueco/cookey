@@ -130,11 +130,37 @@ the query cache and flips the gate.
 
 ## Visual refresh
 
-Brand: caramel-amber accent + warm neutral scale (single-point change in
-`tailwind.config.js` + `globals.css` variables), new sparkle-cookie logo
-(`src/components/CookeyLogo.tsx`, favicon `src/app/icon.svg`), icon
-sidebar, redesigned login screen and landing hero, consistent page
-headers/spacing, both themes. Demo app restyled to the same language.
+Brand: **iris accent (`#5B5BD6`) on graphite neutrals** — a single-point
+change in `tailwind.config.js` (`primary` + the `slate` override) plus
+the token block at the top of `globals.css`. The mark is a keyhole in a
+gradient squircle (`src/components/CookeyLogo.tsx`, favicon
+`src/app/icon.svg`); keep the two in sync, they share one path.
+
+Shared UI kit under `src/components/ui` (toasts, confirm dialog,
+segmented control, switch, tag input, stat tiles, usage meters, relative
+time) — reach for these before writing bespoke markup, that's what keeps
+spacing, focus rings and dark mode consistent.
+
+Grouped sidebar with a pending-grants badge, redesigned login and landing
+hero, dashboard with 14-day traffic/spend trends, searchable grants list,
+a form-based template creator (was a raw-JSON textarea), and a rebuilt
+approval screen — see below. Demo app tracks the same palette.
+
+## Owner control over what a grant actually gets
+
+The approval screen previously let the owner set duration, budgets and
+hardening, but every action a request named was granted wholesale, and
+`decisions.constraints` existed in the schema with no UI behind it.
+
+- `GrantDecisions.actions` (request index → allowed action subset) lets
+  the owner drop individual verbs. Absent = everything requested; empty
+  = the request is dropped. `approveGrant()` rejects any action the
+  request did not ask for — owners tighten, never widen.
+- `server/connectors/capabilities.ts` derives owner-facing controls from
+  each connector's own `enforce` map, so the screen offers exactly the
+  limits the engine will honour (models, reply length, streaming, tools,
+  recipient caps, domain allowlists) and nothing that would be silently
+  ignored. `sanitizeConstraints()` re-checks this server-side.
 
 ## Known gaps / follow-ups
 

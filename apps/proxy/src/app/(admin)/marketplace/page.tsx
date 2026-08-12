@@ -2,11 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ResourceTypeIcon } from "@/components/grant/approval-parts";
+import {
+  EmptyState,
+  LoadingRows,
+  PageHeader,
+  Segmented,
+  useSlashFocus,
+} from "@/components/ui";
 
 // ============================================
-// CONNECTOR MARKETPLACE (9.6)
-// Grid from the registry index; install goes through the exact 9.4
-// review flow (install page with ?url=&registry=1).
+// CONNECTOR MARKETPLACE
+// Grid from the registry index; every install still goes through the
+// full review flow (install page with ?url=&registry=1) — nothing here
+// installs in one click, by design.
 // ============================================
 
 interface RegistryEntry {
@@ -26,7 +35,8 @@ export default function MarketplacePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<string>("");
+  const searchRef = useSlashFocus<HTMLInputElement>();
 
   useEffect(() => {
     (async () => {
@@ -40,7 +50,9 @@ export default function MarketplacePage() {
         setEntries(data.entries ?? []);
         setInstalled(data.installed ?? {});
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load registry");
+        setError(
+          err instanceof Error ? err.message : "Failed to load registry",
+        );
       } finally {
         setLoading(false);
       }
@@ -48,7 +60,7 @@ export default function MarketplacePage() {
   }, []);
 
   const types = useMemo(
-    () => [...new Set(entries.map((e) => e.resourceType))].sort(),
+    () => [...new Set(entries.map((entry) => entry.resourceType))].sort(),
     [entries],
   );
 
@@ -68,121 +80,162 @@ export default function MarketplacePage() {
   };
 
   return (
-    <main className="min-h-screen max-w-4xl mx-auto p-8 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Marketplace
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Curated connectors. Every install is reviewed and frozen.
-          </p>
-        </div>
-        <Link href="/connectors" className="text-sm text-slate-400 underline">
-          ← Installed connectors
-        </Link>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="input text-sm flex-1 min-w-48"
-          placeholder="Search connectors…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <button
-          className={`px-3 py-1 rounded-full text-xs font-medium ${!typeFilter ? "bg-primary-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"}`}
-          onClick={() => setTypeFilter(null)}
-        >
-          All
-        </button>
-        {types.map((type) => (
-          <button
-            key={type}
-            className={`px-3 py-1 rounded-full text-xs font-medium ${typeFilter === type ? "bg-primary-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"}`}
-            onClick={() => setTypeFilter(type)}
+    <main className="p-8 space-y-5 max-w-4xl">
+      <PageHeader
+        title="Marketplace"
+        description="Curated connectors. Every install is reviewed against its egress hosts and frozen at the version you approved."
+        breadcrumb={
+          <Link
+            href="/connectors"
+            className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
           >
-            {type}
-          </button>
-        ))}
-      </div>
+            ← Installed connectors
+          </Link>
+        }
+      />
 
       {error && (
-        <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300 space-y-1">
+        <div className="callout-warning space-y-1">
           <p>
-            {error} — is the registry URL reachable?{" "}
-            {registryUrl && <span className="font-mono text-xs">({registryUrl})</span>}
+            {error} — is the registry reachable?{" "}
+            {registryUrl && (
+              <code className="code-inline">{registryUrl}</code>
+            )}
           </p>
           <p className="text-xs">
-            You can change the registry URL in{" "}
-            <Link href="/settings" className="underline">
+            Change the registry URL in{" "}
+            <Link href="/settings" className="underline underline-offset-2">
               Settings
             </Link>
-            , or install connectors directly from a URL or the custom builder
-            below.
+            , or install a connector directly from a URL.
           </p>
         </div>
       )}
 
+      {types.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="overflow-x-auto scrollbar-hide">
+            <Segmented
+              value={typeFilter}
+              onChange={setTypeFilter}
+              options={[
+                { value: "", label: "All" },
+                ...types.map((type) => ({ value: type, label: type })),
+              ]}
+            />
+          </div>
+          <div className="relative max-w-[14rem] ml-auto">
+            <input
+              ref={searchRef}
+              className="input pr-8"
+              placeholder="Search connectors…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            {!search && (
+              <kbd className="kbd absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                /
+              </kbd>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
-        <p className="text-slate-500">Loading registry…</p>
+        <div className="card p-5">
+          <LoadingRows rows={4} />
+        </div>
+      ) : filtered.length === 0 ? (
+        !error && (
+          <EmptyState
+            icon={
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.4}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+            }
+            title={search ? `Nothing matching “${search}”` : "Registry is empty"}
+            description="You can still install any connector from a URL, or build your own."
+            action={
+              <Link href="/connectors/install" className="btn-primary">
+                Install from URL
+              </Link>
+            }
+          />
+        )
       ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {filtered.map((entry) => {
+        <div className="grid sm:grid-cols-2 gap-3 stagger">
+          {filtered.map((entry, index) => {
             const installedVersion = installed[entry.id];
             const updateAvailable =
               installedVersion && installedVersion !== entry.version;
             return (
-              <div key={entry.id} className="card p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-900 dark:text-white">
+              <div
+                key={entry.id}
+                className="card card-hover p-4 flex flex-col gap-3"
+                style={{ "--i": index } as React.CSSProperties}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="w-9 h-9 shrink-0 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center">
+                    <ResourceTypeIcon
+                      resourceType={entry.resourceType}
+                      className="w-[18px] h-[18px]"
+                    />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
                       {entry.name}
                     </p>
-                    <p className="text-xs font-mono text-slate-500">
+                    <p className="text-[11px] font-mono text-slate-400 truncate">
                       {entry.id} · v{entry.version}
                     </p>
                   </div>
                   {entry.official && (
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                      Official
-                    </span>
+                    <span className="badge-success shrink-0">Official</span>
                   )}
                 </div>
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                  {entry.description}
-                </p>
-                <div className="mt-3">
+
+                <p className="field-hint truncate-2">{entry.description}</p>
+
+                <div className="mt-auto pt-1">
                   {installedVersion && !updateAvailable ? (
-                    <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                      ✓ Installed (v{installedVersion})
+                    <span className="badge-success">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                      </svg>
+                      Installed · v{installedVersion}
                     </span>
                   ) : (
                     <Link
-                      href={`/connectors/install?url=${encodeURIComponent(connectorUrl(entry))}&registry=1`}
-                      className="btn-primary text-xs"
+                      href={`/connectors/install?url=${encodeURIComponent(
+                        connectorUrl(entry),
+                      )}&registry=1`}
+                      className={
+                        updateAvailable
+                          ? "btn-secondary btn-sm"
+                          : "btn-primary btn-sm"
+                      }
                     >
                       {updateAvailable
-                        ? `Review update v${entry.version}`
-                        : "Install"}
+                        ? `Review update to v${entry.version}`
+                        : "Review & install"}
                     </Link>
                   )}
                 </div>
               </div>
             );
           })}
-          {filtered.length === 0 && !error && (
-            <p className="text-sm text-slate-500">Nothing matches.</p>
-          )}
         </div>
       )}
 
-      <p className="text-xs text-slate-400">
-        <Link href="/connectors/install" className="underline">
-          Install from URL instead
+      <p className="field-hint">
+        <Link
+          href="/connectors/install"
+          className="underline underline-offset-2"
+        >
+          Install from a URL instead
         </Link>{" "}
         ·{" "}
-        <Link href="/connectors/new" className="underline">
+        <Link href="/connectors/new" className="underline underline-offset-2">
           Build a custom connector
         </Link>
       </p>

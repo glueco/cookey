@@ -191,6 +191,12 @@ model ResourcePermission {
   dailyTokenBudget   Int?
   monthlyTokenBudget Int?
 
+  // Spend budget in USD, from connector pricing (null = unlimited).
+  // Grant-level like the other budgets: denormalized onto every row,
+  // enforced against the grant-wide total.
+  dailyCostBudgetUsd   Float?
+  monthlyCostBudgetUsd Float?
+
   // Permission status
   status PermissionStatus @default(ACTIVE)
 
@@ -219,8 +225,9 @@ model PermissionUsage {
   periodStart DateTime // Start of day/month in UTC
 
   // Usage counters
-  requestCount Int @default(0)
-  tokenCount   Int @default(0) // For LLM resources
+  requestCount Int   @default(0)
+  tokenCount   Int   @default(0) // For LLM resources
+  costUsd      Float @default(0) // Estimated spend, from connector pricing
 
   updatedAt DateTime @updatedAt
 
@@ -459,6 +466,11 @@ model Connector {
   document        Json // the FROZEN connector JSON
   enabled         Boolean         @default(true)
   updateAvailable Json? // {version, fetchedAt} recorded by cron, never auto-applied
+  // Owner corrections to the document's per-model pricing — free tiers,
+  // negotiated rates, models the document doesn't price. Merged over
+  // document.pricing when the connector is resolved; the document
+  // itself stays frozen. { "<model>": { inputPerMTok, outputPerMTok } }
+  pricingOverrides Json?
   installedAt     DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 

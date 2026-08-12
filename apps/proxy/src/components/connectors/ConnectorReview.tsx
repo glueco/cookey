@@ -42,34 +42,21 @@ export interface ConnectorDocShape {
 export type TrustLevel = "builtin" | "registry" | "url" | "custom";
 
 const TRUST_BADGES: Record<TrustLevel, { label: string; className: string }> = {
-  builtin: {
-    label: "Built-in",
-    className:
-      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  },
-  registry: {
-    label: "Official marketplace",
-    className:
-      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  },
-  url: {
-    label: "⚠ Unverified URL",
-    className:
-      "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  },
-  custom: {
-    label: "Custom",
-    className:
-      "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200",
-  },
+  builtin: { label: "Built-in", className: "badge-success" },
+  registry: { label: "Marketplace", className: "badge-success" },
+  url: { label: "Unverified URL", className: "badge-warning" },
+  custom: { label: "Custom", className: "badge-neutral" },
 };
 
 export function TrustBadge({ trust }: { trust: TrustLevel }) {
   const badge = TRUST_BADGES[trust];
   return (
-    <span
-      className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${badge.className}`}
-    >
+    <span className={`${badge.className} shrink-0`}>
+      {trust === "url" && (
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+      )}
       {badge.label}
     </span>
   );
@@ -91,29 +78,30 @@ export function ConnectorReview({
 
   return (
     <div className="space-y-5">
-      {/* (1) Egress hosts banner — large, top */}
-      <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border-2 border-red-200 dark:border-red-900">
-        <p className="text-sm font-semibold text-red-900 dark:text-red-200">
+      {/* (1) Egress hosts banner — large, top. This is the one fact that
+          can't be undone after install, so it outranks everything else. */}
+      <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
+        <p className="text-sm font-semibold text-rose-900 dark:text-rose-200">
           Your “{credentialLabel}” will be sent to these hosts:
         </p>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {(doc.allowedHosts ?? []).map((host) => (
             <code
               key={host}
-              className={`px-2 py-1 rounded text-sm font-mono ${
+              className={`px-2 py-1 rounded-md text-[13px] font-mono ${
                 highlightHosts?.includes(host)
-                  ? "bg-red-600 text-white"
-                  : "bg-white dark:bg-slate-900 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-900"
+                  ? "bg-rose-600 text-white font-semibold"
+                  : "bg-white dark:bg-slate-900 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30"
               }`}
             >
               {host}
-              {highlightHosts?.includes(host) && " (NEW)"}
+              {highlightHosts?.includes(host) && " · NEW"}
             </code>
           ))}
         </div>
-        <p className="mt-2 text-xs text-red-700 dark:text-red-400">
-          Requests from this connector can ONLY go to these hosts — the list
-          is frozen at install.
+        <p className="mt-2.5 text-xs text-rose-700 dark:text-rose-400">
+          Requests from this connector can only go to these hosts — the list is
+          frozen at install.
         </p>
       </div>
 

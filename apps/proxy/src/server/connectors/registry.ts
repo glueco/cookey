@@ -208,7 +208,19 @@ async function loadCache(): Promise<CacheState> {
   const byId = new Map<string, ResolvedConnector>();
 
   for (const row of rows) {
-    const document = row.document as unknown as ConnectorDocument;
+    const frozen = row.document as unknown as ConnectorDocument;
+    // Owner pricing corrections apply HERE, at the single point every
+    // consumer resolves documents through — enforcement cost, the
+    // approval screen's projection and capability listings all see the
+    // effective rates without knowing overrides exist. The frozen
+    // document itself is never mutated.
+    const overrides = row.pricingOverrides as
+      | ConnectorDocument["pricing"]
+      | null;
+    const document =
+      overrides && Object.keys(overrides).length > 0
+        ? { ...frozen, pricing: { ...frozen.pricing, ...overrides } }
+        : frozen;
     const adapter = getAdapter(document.adapter);
     if (!adapter) {
       logger.error("Connector references unknown adapter; skipping", {

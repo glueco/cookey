@@ -28,6 +28,39 @@ export async function POST(request: NextRequest) {
     const publicKey = await getPublicKey();
 
     // Build the grant document (docs/GRANT_SPEC.md) for the gateway
+    const grantRequests = (requestedPermissions || []).map(
+      (perm: { resourceId: string; actions: string[] }) => ({
+        resource: perm.resourceId,
+        actions: perm.actions,
+        reason: "Demo playground request from the reference app.",
+      }),
+    );
+
+    // Access options are REQUIRED: the app proposes presets and the
+    // owner picks one on the approval screen. The demo offers a full
+    // preset, plus a trimmed one when more than one resource is asked for.
+    const grantOptions = [
+      {
+        id: "standard",
+        name: "Standard access",
+        description: "Everything the demo playground asks for.",
+        recommended: true,
+        requests: grantRequests.map((_: unknown, i: number) => i),
+        budget: { dailyRequests: 100 },
+      },
+      ...(grantRequests.length > 1
+        ? [
+            {
+              id: "minimal",
+              name: "Minimal",
+              description: "Just the first resource, with a tighter budget.",
+              requests: [0],
+              budget: { dailyRequests: 25 },
+            },
+          ]
+        : []),
+    ];
+
     const preparePayload = {
       connectCode,
       grant: {
@@ -39,13 +72,8 @@ export async function POST(request: NextRequest) {
         runtime: "server",
         auth: "pop",
         publicKey,
-        requests: (requestedPermissions || []).map(
-          (perm: { resourceId: string; actions: string[] }) => ({
-            resource: perm.resourceId,
-            actions: perm.actions,
-            reason: "Demo playground request from the reference app.",
-          }),
-        ),
+        requests: grantRequests,
+        options: grantOptions,
         duration: "24h",
         budget: { dailyRequests: 100 },
         redirectUri: redirectUri || `${request.nextUrl.origin}/`,

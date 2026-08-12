@@ -8,33 +8,36 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Caramel amber accent (matches the Cookey gateway app)
+        // Ink accent — mirrors the gateway's default brand ramp
+        // (apps/proxy/src/app/globals.css, "ink"). This app is a plain
+        // static consumer, so the values are inlined rather than
+        // var-driven; keep them in step if you re-brand the gateway.
         primary: {
-          50: "#fdf8ef",
-          100: "#faeed9",
-          200: "#f4dab2",
-          300: "#edc181",
-          400: "#e5a44e",
-          500: "#df8d2b",
-          600: "#d17420",
-          700: "#ad5a1d",
-          800: "#8b481e",
-          900: "#713c1c",
-          950: "#3d1d0c",
+          50: "#f5f4ee",
+          100: "#e8e6dd",
+          200: "#d9d7ce",
+          300: "#bdbaaf",
+          400: "#98958a",
+          500: "#6e6b62",
+          600: "#23221e",
+          700: "#1c1b18",
+          800: "#171613",
+          900: "#12110f",
+          950: "#0c0b09",
         },
-        // Warm neutrals (override the cool default gray scale)
+        // Warm paper-and-ink neutrals (override the default gray scale)
         gray: {
-          50: "#fafaf9",
-          100: "#f4f4f2",
-          200: "#e6e5e1",
-          300: "#d4d3cd",
-          400: "#a3a29b",
-          500: "#75746d",
-          600: "#57564f",
-          700: "#44433d",
-          800: "#2b2a27",
-          900: "#1c1b19",
-          950: "#121110",
+          50: "#faf9f5",
+          100: "#f3f1ea",
+          200: "#e6e3d9",
+          300: "#d2cfc2",
+          400: "#a3a093",
+          500: "#767267",
+          600: "#58554c",
+          700: "#44423b",
+          800: "#2b2a25",
+          900: "#21201c",
+          950: "#161512",
         },
       },
     },

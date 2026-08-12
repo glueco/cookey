@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { DemoMark } from "@/components/DemoMark";
 
 // ============================================
 // BEARER TAB — zero-Cookey-dependency connection
@@ -174,7 +175,13 @@ function BearerPageInner() {
   return (
     <main className="min-h-screen max-w-2xl mx-auto p-6 space-y-6">
       <div className="space-y-2">
-        <span className="badge-brand">Cookey demo app</span>
+        <div className="flex items-center gap-2.5">
+          <DemoMark
+            size={22}
+            className="text-gray-900 dark:text-gray-100 shrink-0"
+          />
+          <span className="badge-brand">Cookey demo app</span>
+        </div>
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-50">
           Bearer connection
         </h1>

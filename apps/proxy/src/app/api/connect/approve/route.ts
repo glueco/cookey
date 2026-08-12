@@ -5,8 +5,13 @@ import {
   denyGrant,
   GrantServiceError,
 } from "@/server/grants/service";
-import { GrantDecisionsSchema } from "@/server/grants/schema";
+import { GrantDecisionsSchema, type GrantDecisions } from "@/server/grants/schema";
 import { checkAdminAuth } from "@/lib/admin-auth";
+import { resolveConnector } from "@/server/connectors/registry";
+import {
+  deriveConstraintSpecs,
+  sanitizeConstraints,
+} from "@/server/connectors/capabilities";
 
 // ============================================
 // POST /api/connect/approve
@@ -21,6 +26,36 @@ const ApproveRequestSchema = z.object({
   decision: z.enum(["approve", "deny"]),
   decisions: GrantDecisionsSchema.optional(),
 });
+
+/**
+ * Keep only the constraint keys the bound connector can actually
+ * enforce, coerced to the shapes the enforcement engine reads.
+ *
+ * The approval screen derives its controls from the same specs, so in
+ * normal use nothing is dropped. This exists for the abnormal cases: a
+ * tab left open across a connector downgrade, or a hand-rolled POST.
+ * An unenforceable key stored on a permission is worse than useless —
+ * it shows up on the grant detail page as a limit that isn't real.
+ */
+async function sanitizeDecisionConstraints(
+  decisions: GrantDecisions,
+): Promise<GrantDecisions> {
+  const entries = Object.entries(decisions.constraints ?? {});
+  if (entries.length === 0) return decisions;
+
+  const cleaned: Record<string, Record<string, unknown>> = {};
+  for (const [resourceId, raw] of entries) {
+    const connector = await resolveConnector(resourceId);
+    if (!connector) continue; // no such connector → nothing to enforce
+    const kept = sanitizeConstraints(
+      deriveConstraintSpecs(connector.document),
+      raw,
+    );
+    if (Object.keys(kept).length > 0) cleaned[resourceId] = kept;
+  }
+
+  return { ...decisions, constraints: cleaned };
+}
 
 export async function POST(request: NextRequest) {
   if (!(await checkAdminAuth(request))) {
@@ -62,9 +97,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      const decisions = await sanitizeDecisionConstraints(
+        parsed.data.decisions,
+      );
+
       const result = await approveGrant(
         parsed.data.sessionToken,
-        parsed.data.decisions,
+        decisions,
         { gatewayUrl: request.nextUrl.origin },
       );
 

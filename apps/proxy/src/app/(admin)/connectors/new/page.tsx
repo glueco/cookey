@@ -259,7 +259,7 @@ function CustomConnectorBuilderInner() {
   return (
     <main className="min-h-screen max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+        <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-slate-900 dark:text-white">
           {editMode ? "Edit custom connector" : "Build a custom connector"}
         </h1>
         <Link href="/connectors" className="text-sm text-slate-400 underline">
@@ -351,7 +351,7 @@ function CustomConnectorBuilderInner() {
                   <input type="checkbox" checked={action.streaming} onChange={(e) => setActions((prev) => prev.map((a, i) => (i === index ? { ...a, streaming: e.target.checked } : a)))} />
                   SSE
                 </label>
-                <button className="text-red-500 text-sm" onClick={() => setActions((prev) => prev.filter((_, i) => i !== index))}>✕</button>
+                <button className="text-rose-500 text-sm" onClick={() => setActions((prev) => prev.filter((_, i) => i !== index))}>✕</button>
               </div>
             ))}
             <button className="text-xs text-primary-600 underline" onClick={() => setActions((prev) => [...prev, { id: "", method: "POST", path: "", streaming: false }])}>
@@ -383,7 +383,7 @@ function CustomConnectorBuilderInner() {
           </label>
 
           {error && (
-            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+            <div className="callout-danger">
               <p>{error}</p>
               {details.length > 0 && (
                 <ul className="mt-1 text-xs list-disc pl-4">
@@ -428,7 +428,7 @@ function CustomConnectorBuilderInner() {
           <p className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
             Document preview
           </p>
-          <pre className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs overflow-x-auto text-slate-700 dark:text-slate-200 sticky top-6">
+          <pre className="code-block sticky top-6">
             {JSON.stringify(document, null, 2)}
           </pre>
         </div>

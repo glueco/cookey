@@ -7,6 +7,7 @@ import {
   fetchDiscovery,
   type DiscoveryResponse,
 } from "@/lib/discovery";
+import { DemoMark } from "@/components/DemoMark";
 
 // ============================================
 // CONNECTION STORAGE (localStorage)
@@ -414,6 +415,10 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2.5">
+              <DemoMark
+                size={22}
+                className="text-gray-900 dark:text-gray-100 shrink-0"
+              />
               <h1 className="font-bold text-lg tracking-tight text-gray-900 dark:text-gray-50">
                 Dashboard
               </h1>

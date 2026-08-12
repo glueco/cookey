@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/server/limits/rate-limit";
 import {
   checkAndIncrementRequestUsage,
+  checkCostBudget,
   checkTokenBudget,
   recordTokenUsage,
 } from "@/server/limits/budget";
@@ -298,6 +299,25 @@ export async function processGatewayRequest(
       };
     }
 
+    const costBudgetResult = await checkCostBudget(grant.id, {
+      dailyCostBudgetUsd: permission.dailyCostBudgetUsd,
+      monthlyCostBudgetUsd: permission.monthlyCostBudgetUsd,
+    });
+
+    if (!costBudgetResult.allowed) {
+      return {
+        success: false,
+        decision: RequestDecision.DENIED_BUDGET,
+        decisionReason: `${costBudgetResult.period.toLowerCase()} spend budget exceeded ($${costBudgetResult.used.toFixed(2)}/$${costBudgetResult.limit.toFixed(2)})`,
+        error: {
+          status: 429,
+          code: ErrorCode.ERR_BUDGET_EXCEEDED,
+          message: `Spend budget exceeded. Used: $${costBudgetResult.used.toFixed(2)} of $${costBudgetResult.limit.toFixed(2)}`,
+        },
+        metadata: baseMetadata,
+      };
+    }
+
     // ============================================
     // STAGE 8: Connector Resolution + Enforcement (generic engine)
     // ============================================
@@ -554,17 +574,31 @@ export async function processGatewayRequest(
           result.stream,
           actionSpec.usage,
           async (streamUsage) => {
-            if (streamUsage.totalTokens) {
-              await recordTokenUsage(permissionId, streamUsage.totalTokens);
+            const streamCost = estimateCost(
+              connector,
+              streamUsage.model || requestedModel,
+              streamUsage,
+            );
+            if (streamUsage.totalTokens || streamCost) {
+              await recordTokenUsage(
+                permissionId,
+                streamUsage.totalTokens ?? 0,
+                streamCost ?? 0,
+              );
             }
           },
         );
       }
 
-      if (usage.totalTokens) {
+      const costEstimate = estimateCost(connector, modelUsed, usage);
+      if (usage.totalTokens || costEstimate) {
         // Awaited: fire-and-forget writes can be dropped when a
         // serverless invocation is frozen right after responding.
-        await recordTokenUsage(permission.id, usage.totalTokens).catch((err) => {
+        await recordTokenUsage(
+          permission.id,
+          usage.totalTokens ?? 0,
+          costEstimate ?? 0,
+        ).catch((err) => {
           log.warn("Failed to record token usage", { error: err });
         });
       }
@@ -595,7 +629,7 @@ export async function processGatewayRequest(
                 totalTokens: usage.totalTokens,
               }
             : undefined,
-          costEstimate: estimateCost(connector, modelUsed, usage),
+          costEstimate,
         },
       };
     } catch (error) {

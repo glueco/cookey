@@ -25,6 +25,28 @@ A grant document says what your app needs and why. Build one interactively at
       "actions": ["chat.completions"],
       "reason": "Runs the four AI players each game round.",
       "constraints": { "maxOutputTokens": 1024 }
+    },
+    {
+      "resource": "mail:resend",
+      "actions": ["send"],
+      "reason": "Emails the game summary to the player.",
+      "constraints": { "maxRecipients": 1 }
+    }
+  ],
+  "options": [
+    {
+      "id": "game-only",
+      "name": "Game only",
+      "description": "Just the AI players — no email access.",
+      "recommended": true,
+      "requests": [0],
+      "budget": { "dailyRequests": 100 }
+    },
+    {
+      "id": "full",
+      "name": "Game + email summaries",
+      "requests": [0, 1],
+      "budget": { "dailyRequests": 200 }
     }
   ],
   "duration": "30d",
@@ -36,6 +58,20 @@ A grant document says what your app needs and why. Build one interactively at
 
 Notes that matter:
 
+- **`requests` is the ask.** It's what the approval screen opens on and
+  what the owner approves unless they narrow it. Nothing else has to be
+  filled in for consent to work.
+- **`options` is optional (0–5 entries)** and only worth shipping if your
+  app has real tiers. Each one is a *smaller* bundle the owner may take
+  instead; accepting one materializes only that option's requests. If
+  your app has a single shape, omit `options` entirely — the example
+  above ships them because email access is genuinely separable from the
+  game. Offering a trimmed tier makes owners more likely to say yes; a
+  single all-inclusive option just adds a click.
+- **`auth` + `publicKey` decide your credential, not the owner.** Ship a
+  public key and sign your requests to get PoP; otherwise you get a
+  static bearer token, and the owner's screen warns them about it
+  accordingly. There is no approval-time override in either direction.
 - **`reason` is required per request** and shown to the owner verbatim. Write
   it for a human deciding whether to trust you.
 - `resource` may be concrete (`llm:groq`) or a wildcard (`llm:*`) — the owner
@@ -62,7 +98,8 @@ Show `approvalUrl` to the owner, then poll
 `GET {gateway}/api/connect/status?session={grantId}` for
 `pending | approved | rejected`.
 
-**c. Manual paste.** Email them the JSON. It works.
+(There is no manual-paste path — grants only enter a gateway through
+these app-initiated routes.)
 
 ## 3. Receive your token
 

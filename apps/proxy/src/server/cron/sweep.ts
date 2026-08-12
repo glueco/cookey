@@ -7,6 +7,7 @@ import {
   createNotification,
   createNotificationOnce,
 } from "@/server/notifications";
+import { PENDING_GRANT_MAX_AGE_DAYS } from "@/server/grants/service";
 
 // ============================================
 // SWEEP (shared by the daily cron and the admin "run sweep" action)
@@ -19,7 +20,6 @@ import {
 // ============================================
 
 const RENEWAL_NOTICE_DAYS = 3;
-const PENDING_GRANT_MAX_AGE_DAYS = 7;
 // RateCounter rows are keyed by window start; nothing looks at windows
 // older than 2× the largest plausible window, so a 2-day cutoff is safe.
 const RATE_COUNTER_MAX_AGE_SECONDS = 2 * 24 * 60 * 60;

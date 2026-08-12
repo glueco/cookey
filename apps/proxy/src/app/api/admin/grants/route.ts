@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/admin-auth";
-import { createPendingGrant, GrantServiceError } from "@/server/grants/service";
 
 // ============================================
 // /api/admin/grants
-// GET  — list grants with token + app summary
-// POST — create a PENDING grant from a pasted document (5.2 path 3)
+// GET — list grants with token + app summary
+//
+// There is deliberately NO POST here: grants only arrive from the app
+// itself — via /api/connect/prepare (pairing code) or the app's
+// published /.well-known/cookey-grant.json (/api/admin/grants/fetch).
+// Owners choose among the app's proposed access options at approval;
+// they never author grant documents by hand.
 // ============================================
 
 export async function GET(request: NextRequest) {
@@ -41,47 +44,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ grants });
 }
 
-const PasteGrantSchema = z.object({
-  document: z.record(z.unknown()),
-});
-
-export async function POST(request: NextRequest) {
-  if (!(await checkAdminAuth(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const parsed = PasteGrantSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Expected { document: <grant document> }" },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const grant = await createPendingGrant(parsed.data.document);
-    return NextResponse.json({
-      grant,
-      approvalUrl: `${process.env.GATEWAY_URL || request.nextUrl.origin}/connect/approve?grant=${grant.id}`,
-    });
-  } catch (error) {
-    if (error instanceof GrantServiceError) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: error.status },
-      );
-    }
-    console.error("Grant paste error:", error);
-    return NextResponse.json(
-      { error: "Failed to create grant" },
-      { status: 500 },
-    );
-  }
+export async function POST() {
+  return NextResponse.json(
+    {
+      error:
+        "Manual grant creation was removed — apps submit their own grant documents via /api/connect/prepare (pairing code) or publish /.well-known/cookey-grant.json for URL-based discovery",
+    },
+    { status: 410 },
+  );
 }

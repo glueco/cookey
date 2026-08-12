@@ -1,87 +1,98 @@
 // ============================================
-// COOKEY LOGO
-// A golden cookie whose "chips" are four-point sparkles.
-// Pure inline SVG — no assets, themes automatically via currentColor
-// accents where needed. Use `size` for pixel dimensions.
+// COOKEY MARKS
+// Two marks, one system — both drawn in currentColor so they survive
+// any theme or accent swap without carrying a hue of their own.
+//
+// CookeyMonogram — the "custody C": a heavy C holding a small square
+//   in its opening (the key, held but not handed over). This is the
+//   official mark: documentation, the landing page, the favicon
+//   (mirrored in src/app/icon.svg — change one, change both).
+//
+// CookeyMark — the parametric bracket slot: [x_] — square brackets
+//   holding the deployment's own initial plus a cursor square. Every
+//   self-hosted gateway renders its owner's letter, so each install
+//   wears its own mark. Works with any glyph, Latin or not.
 // ============================================
 
-interface CookeyLogoProps {
+interface MarkProps {
   size?: number;
   className?: string;
 }
 
-/** Four-point sparkle (Gemini-style star) centered at (cx, cy). */
-function Sparkle({
-  cx,
-  cy,
-  r,
-  fill,
-  opacity = 1,
-}: {
-  cx: number;
-  cy: number;
-  r: number;
-  fill: string;
-  opacity?: number;
-}) {
-  // Concave diamond: tips at N/E/S/W, pinched waist via quadratic curves.
-  const d = [
-    `M ${cx} ${cy - r}`,
-    `Q ${cx + r * 0.18} ${cy - r * 0.18} ${cx + r} ${cy}`,
-    `Q ${cx + r * 0.18} ${cy + r * 0.18} ${cx} ${cy + r}`,
-    `Q ${cx - r * 0.18} ${cy + r * 0.18} ${cx - r} ${cy}`,
-    `Q ${cx - r * 0.18} ${cy - r * 0.18} ${cx} ${cy - r}`,
-    "Z",
-  ].join(" ");
-  return <path d={d} fill={fill} opacity={opacity} />;
+const MONO_STACK =
+  "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace";
+
+/**
+ * First useful letter of a deployment name, lowercased — "Umer's
+ * Gateway" → "u". Falls back to "c" (Cookey) when the name has no
+ * letters at all. Unicode-aware, so non-Latin names keep their glyph.
+ */
+export function getBrandInitial(name?: string | null): string {
+  const match = name?.match(/\p{L}/u);
+  return match ? match[0].toLocaleLowerCase() : "c";
 }
 
-export function CookeyLogo({ size = 28, className }: CookeyLogoProps) {
+/** Official monogram: the custody C. */
+export function CookeyMonogram({ size = 28, className }: MarkProps) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 64 64"
-      fill="none"
+      viewBox="-46 -46 92 92"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       role="img"
       aria-label="Cookey"
     >
-      <defs>
-        <radialGradient id="cookey-base" cx="38%" cy="32%" r="80%">
-          <stop offset="0%" stopColor="#F5C97B" />
-          <stop offset="55%" stopColor="#E8A954" />
-          <stop offset="100%" stopColor="#C97F35" />
-        </radialGradient>
-        <radialGradient id="cookey-rim" cx="50%" cy="50%" r="50%">
-          <stop offset="82%" stopColor="#000000" stopOpacity="0" />
-          <stop offset="100%" stopColor="#8A5220" stopOpacity="0.55" />
-        </radialGradient>
-        <linearGradient id="cookey-spark" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#FFFDF6" />
-          <stop offset="100%" stopColor="#FFE9BE" />
-        </linearGradient>
-      </defs>
-
-      {/* Cookie body — softly irregular edge */}
       <path
-        d="M32 3.5
-           c4.4 0 6.3 2.6 10.2 3.5 3.9.9 7.5-.4 10.3 2.4 2.8 2.8 1.5 6.4 2.4 10.3.9 3.9 3.6 5.8 3.6 10.3 0 4.4-2.7 6.4-3.6 10.3-.9 3.9.4 7.5-2.4 10.3-2.8 2.8-6.4 1.5-10.3 2.4-3.9.9-5.8 3.5-10.2 3.5-4.4 0-6.3-2.6-10.2-3.5-3.9-.9-7.5.4-10.3-2.4-2.8-2.8-1.5-6.4-2.4-10.3C8.2 36.4 5.5 34.4 5.5 30c0-4.5 2.7-6.4 3.6-10.3.9-3.9-.4-7.5 2.4-10.3 2.8-2.8 6.4-1.5 10.3-2.4C25.7 6.1 27.6 3.5 32 3.5Z"
-        fill="url(#cookey-base)"
+        d="M 25.2 19.7 A 32 32 0 1 1 25.2 -19.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="20"
+        strokeLinecap="round"
       />
-      <path
-        d="M32 3.5
-           c4.4 0 6.3 2.6 10.2 3.5 3.9.9 7.5-.4 10.3 2.4 2.8 2.8 1.5 6.4 2.4 10.3.9 3.9 3.6 5.8 3.6 10.3 0 4.4-2.7 6.4-3.6 10.3-.9 3.9.4 7.5-2.4 10.3-2.8 2.8-6.4 1.5-10.3 2.4-3.9.9-5.8 3.5-10.2 3.5-4.4 0-6.3-2.6-10.2-3.5-3.9-.9-7.5.4-10.3-2.4-2.8-2.8-1.5-6.4-2.4-10.3C8.2 36.4 5.5 34.4 5.5 30c0-4.5 2.7-6.4 3.6-10.3.9-3.9-.4-7.5 2.4-10.3 2.8-2.8 6.4-1.5 10.3-2.4C25.7 6.1 27.6 3.5 32 3.5Z"
-        fill="url(#cookey-rim)"
-      />
+      <rect x="29" y="-7" width="14" height="14" fill="currentColor" />
+    </svg>
+  );
+}
 
-      {/* Sparkle chips */}
-      <Sparkle cx={24} cy={22} r={7.5} fill="url(#cookey-spark)" />
-      <Sparkle cx={42} cy={30} r={5.5} fill="url(#cookey-spark)" opacity={0.95} />
-      <Sparkle cx={28} cy={42} r={4.5} fill="url(#cookey-spark)" opacity={0.9} />
-      <Sparkle cx={40} cy={15.5} r={3} fill="url(#cookey-spark)" opacity={0.85} />
-      <Sparkle cx={16} cy={34} r={2.6} fill="url(#cookey-spark)" opacity={0.8} />
+/** Per-deployment mark: brackets holding the owner's initial. */
+export function CookeyMark({
+  initial = "c",
+  size = 28,
+  className,
+}: MarkProps & { initial?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="-44 -44 88 88"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      role="img"
+      aria-label={`Cookey — ${initial}`}
+    >
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M -26 -30 H -38 V 30 H -26" />
+        <path d="M 26 -30 H 38 V 30 H 26" />
+      </g>
+      <text
+        x="-8"
+        y="13"
+        fill="currentColor"
+        fontSize="40"
+        textAnchor="middle"
+        fontFamily={MONO_STACK}
+      >
+        {initial}
+      </text>
+      <rect x="8" y="3" width="10" height="10" fill="currentColor" />
     </svg>
   );
 }

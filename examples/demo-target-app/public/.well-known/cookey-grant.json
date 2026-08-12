@@ -17,6 +17,24 @@
       }
     }
   ],
+  "options": [
+    {
+      "id": "standard",
+      "name": "Standard access",
+      "description": "The chat playground with a sensible daily budget.",
+      "recommended": true,
+      "requests": [0],
+      "budget": { "dailyRequests": 200, "dailyTokens": 100000 }
+    },
+    {
+      "id": "trial",
+      "name": "Quick trial",
+      "description": "Same access, tight budget, expires in a day.",
+      "requests": [0],
+      "budget": { "dailyRequests": 25, "dailyTokens": 10000 },
+      "duration": "24h"
+    }
+  ],
   "duration": "7d",
   "budget": {
     "dailyRequests": 200,

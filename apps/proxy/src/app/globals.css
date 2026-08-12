@@ -3,87 +3,253 @@
 @tailwind utilities;
 
 /* ============================================
-   CSS CUSTOM PROPERTIES
+   BRAND PALETTE  ←  the ONLY block to edit to re-brand the app
+                                              ,
+   One ramp, 50 → 950, in space-separated RGB channels so every value
+   supports `rgb(var(--brand-600) / 0.2)`. Tailwind's `primary-*` scale
+   is wired to these vars in tailwind.config.js, and all 150-odd
+   `primary-*` classes in the app follow from here — so swapping the
+   brand is editing eleven numbers, nothing else.
+
+   To try one of the alternates below instead, put the matching
+   `data-brand` on <html> (src/app/layout.tsx):
+
+       <html lang="en" data-brand="iris">
+
+   Ramps must keep the same job per step, or the app re-tones wrong:
+     50/100  page-level tints, badge and callout backgrounds
+     400/500 the accent as it appears on a DARK canvas
+     600     the accent proper — solid buttons, active nav, focus
+     700     its hover state
+     900/950 accent-tinted text on a light tint
+
+   Each palette also names its own DARK-canvas accent (`--accent-dark*`),
+   because that answer is palette-specific: a near-black ramp has to
+   invert to a light fill on dark, a saturated ramp just steps up.
+   ============================================ */
+:root,
+:root[data-brand="ink"] {
+  /* Ink: warm near-black, anchored to the logo sheets — #23221E ink on
+     #FAF9F5 paper, inverting to #E8E6DD on dark. Deliberately close to
+     the neutrals: colour in this app is reserved for status, and the
+     accent earns attention through contrast rather than hue. */
+  --brand-50: 245 244 238;
+  --brand-100: 232 230 221; /* the dark-canvas ink, #E8E6DD */
+  --brand-200: 217 215 206;
+  --brand-300: 189 186 175;
+  --brand-400: 152 149 138;
+  --brand-500: 110 107 98;
+  --brand-600: 35 34 30; /* the ink proper, #23221E */
+  --brand-700: 28 27 24;
+  --brand-800: 23 22 19;
+  --brand-900: 18 17 15;
+  --brand-950: 12 11 9;
+
+  /* Inverts on dark: paper fill, ink label. */
+  --accent-dark: var(--brand-100);
+  --accent-dark-hover: var(--brand-50);
+  --accent-dark-soft: var(--brand-800);
+  --on-accent-dark: var(--brand-950);
+}
+
+:root[data-brand="iris"] {
+  /* The original indigo-violet. */
+  --brand-50: 245 246 255;
+  --brand-100: 235 236 254;
+  --brand-200: 220 222 252;
+  --brand-300: 195 197 249;
+  --brand-400: 165 164 242;
+  --brand-500: 139 134 232;
+  --brand-600: 91 91 214;
+  --brand-700: 74 72 184;
+  --brand-800: 61 59 150;
+  --brand-900: 51 49 120;
+  --brand-950: 33 31 77;
+
+  --accent-dark: var(--brand-500);
+  --accent-dark-hover: var(--brand-400);
+  --accent-dark-soft: var(--brand-950);
+  --on-accent-dark: 255 255 255;
+}
+
+:root[data-brand="blue"] {
+  --brand-50: 240 246 252;
+  --brand-100: 224 236 248;
+  --brand-200: 195 218 241;
+  --brand-300: 152 190 228;
+  --brand-400: 100 155 209;
+  --brand-500: 60 122 182;
+  --brand-600: 37 99 168;
+  --brand-700: 30 79 136;
+  --brand-800: 27 64 107;
+  --brand-900: 25 53 86;
+  --brand-950: 15 33 56;
+
+  --accent-dark: var(--brand-500);
+  --accent-dark-hover: var(--brand-400);
+  --accent-dark-soft: var(--brand-950);
+  --on-accent-dark: 255 255 255;
+}
+
+:root[data-brand="teal"] {
+  --brand-50: 238 250 249;
+  --brand-100: 214 243 240;
+  --brand-200: 175 229 225;
+  --brand-300: 120 208 202;
+  --brand-400: 62 178 172;
+  --brand-500: 26 148 143;
+  --brand-600: 15 124 120;
+  --brand-700: 14 99 97;
+  --brand-800: 15 79 78;
+  --brand-900: 15 66 65;
+  --brand-950: 5 40 40;
+
+  --accent-dark: var(--brand-500);
+  --accent-dark-hover: var(--brand-400);
+  --accent-dark-soft: var(--brand-950);
+  --on-accent-dark: 255 255 255;
+}
+
+/* ============================================
+   DESIGN TOKENS
+   Semantic names on top of the ramp above plus the warm neutrals.
+   Components should reach for THESE (or the tailwind scales) — no
+   one-off hexes anywhere in the app.
    ============================================ */
 :root {
-  /* Colors — warm paper neutrals (match tailwind.config slate scale) */
-  --foreground-rgb: 28, 27, 25;
-  --background-start-rgb: 250, 250, 249;
-  --background-end-rgb: 244, 244, 242;
+  color-scheme: light;
 
-  /* Brand Colors — caramel amber (match tailwind.config primary scale) */
-  --primary-50: 253, 248, 239;
-  --primary-100: 250, 238, 217;
-  --primary-500: 223, 141, 43;
-  --primary-600: 209, 116, 32;
-  --primary-700: 173, 90, 29;
+  /* Surfaces — three stacked levels, lightest on top. Paper, not
+     hospital white: the canvas is the logo sheets' #FAF9F5, and cards
+     lift off it in pure white. */
+  --canvas: 250 249 245; /* page background        (slate-50)  */
+  --surface: 255 255 255; /* cards                  (white)     */
+  --surface-raised: 255 255 255; /* popovers, modals            */
+  --surface-sunken: 243 241 234; /* wells, code      (slate-100) */
 
-  /* Accent */
-  --accent-gradient: linear-gradient(135deg, #e5a44e 0%, #ad5a1d 100%);
+  /* Text */
+  --text: 35 34 30; /* ink, #23221E */
+  --text-muted: 118 114 103; /* slate-500 */
+  --text-subtle: 163 160 147; /* slate-400 */
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  /* Lines */
+  --line: 230 227 217; /* slate-200 */
+  --line-strong: 210 207 194; /* slate-300 */
+
+  /* Brand — indirection, so a re-brand never touches these names.
+     --on-primary is the text colour that sits ON a solid accent fill;
+     it flips in dark mode, which is what lets the accent go light
+     there without every button losing its label. */
+  --primary: var(--brand-600);
+  --primary-hover: var(--brand-700);
+  --primary-soft: var(--brand-100);
+  --on-primary: 255 255 255;
+  /* Ambient brand light (auras, hero washes). Never the accent itself:
+     a near-black glow on a white page reads as a smudge. */
+  --glow: var(--brand-400);
+
+  /* Elevation — layered rather than one big blur. The umbra is warm
+     black, so shadows read as light on paper, not smog. */
+  --shadow-xs: 0 1px 2px 0 rgb(24 22 16 / 0.04);
+  --shadow-sm:
+    0 1px 2px 0 rgb(24 22 16 / 0.05), 0 1px 1px -1px rgb(24 22 16 / 0.04);
+  --shadow-md:
+    0 2px 4px -1px rgb(24 22 16 / 0.06), 0 4px 12px -2px rgb(24 22 16 / 0.08);
   --shadow-lg:
-    0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    0 4px 8px -2px rgb(24 22 16 / 0.06), 0 12px 28px -4px rgb(24 22 16 / 0.1);
   --shadow-xl:
-    0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  --shadow-glow: 0 0 20px rgb(223 141 43 / 0.3);
+    0 8px 16px -4px rgb(24 22 16 / 0.08), 0 24px 48px -8px rgb(24 22 16 / 0.14);
 
-  /* Border Radius */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.5rem;
-
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Motion */
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: 120ms var(--ease-premium);
+  --transition-normal: 180ms var(--ease-premium);
+  --transition-slow: 280ms var(--ease-premium);
 }
 
 /* Dark theme is class-driven (html.dark), set before paint by the root
    layout's inline script — never by the OS media query alone, so the
    in-app ThemeToggle always wins. */
 :root.dark {
-  --foreground-rgb: 244, 244, 242;
-  --background-start-rgb: 18, 17, 16;
-  --background-end-rgb: 28, 27, 25;
+  color-scheme: dark;
 
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-md:
-    0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
-  --shadow-lg:
-    0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
-  --shadow-xl:
-    0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.4);
-  --shadow-glow: 0 0 25px rgb(223 141 43 / 0.35);
+  --canvas: 22 21 18; /* slate-950, #161512 */
+  --surface: 33 32 28; /* slate-900, #21201C */
+  --surface-raised: 43 42 37; /* slate-800 */
+  --surface-sunken: 22 21 18; /* slate-950 */
+
+  --text: 232 230 221; /* paper ink, #E8E6DD */
+  --text-muted: 163 160 147; /* slate-400 */
+  --text-subtle: 118 114 103; /* slate-500 */
+
+  --line: 43 42 37; /* slate-800 */
+  --line-strong: 68 66 59; /* slate-700 */
+
+  /* The dark-canvas accent each palette declared for itself. Ink
+     inverts (paper fill, ink label); saturated ramps just step up
+     to their 500. */
+  --primary: var(--accent-dark);
+  --primary-hover: var(--accent-dark-hover);
+  --primary-soft: var(--accent-dark-soft);
+  --on-primary: var(--on-accent-dark);
+  --glow: var(--brand-600);
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 1px 1px -1px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 2px 4px -1px rgb(0 0 0 / 0.4), 0 4px 12px -2px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 4px 8px -2px rgb(0 0 0 / 0.45), 0 12px 28px -4px rgb(0 0 0 / 0.5);
+  --shadow-xl: 0 8px 16px -4px rgb(0 0 0 / 0.5), 0 24px 48px -8px rgb(0 0 0 / 0.6);
 }
 
 /* ============================================
-   BASE STYLES
+   BASE
    ============================================ */
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-    135deg,
-    rgb(var(--background-start-rgb)) 0%,
-    rgb(var(--background-end-rgb)) 100%
-  );
+  color: rgb(var(--text));
+  background: rgb(var(--canvas));
   min-height: 100vh;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-feature-settings:
+    "cv02", "cv03", "cv04", "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers in tables, stats and budgets must not jitter as they tick. */
+.tabular,
+table,
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgb(var(--primary) / 0.22);
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Native controls inherit the brand instead of the OS blue. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: rgb(var(--primary));
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+hr {
+  border-color: rgb(var(--line));
 }
 
 /* ============================================
-   CUSTOM SCROLLBAR
+   SCROLLBAR
    ============================================ */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -91,19 +257,16 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(148 163 184 / 0.5);
+  background: rgb(var(--line-strong));
   border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(148 163 184 / 0.7);
-}
-
-:root.dark ::-webkit-scrollbar-thumb {
-  background: rgb(71 85 105 / 0.5);
-}
-:root.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgb(71 85 105 / 0.7);
+  background: rgb(var(--text-subtle));
+  background-clip: content-box;
+  border: 3px solid transparent;
 }
 
 /* ============================================
@@ -121,7 +284,7 @@ body {
 @keyframes fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -132,7 +295,7 @@ body {
 @keyframes fade-in-down {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
@@ -143,7 +306,7 @@ body {
 @keyframes slide-in-right {
   from {
     opacity: 0;
-    transform: translateX(20px);
+    transform: translateX(12px);
   }
   to {
     opacity: 1;
@@ -151,10 +314,21 @@ body {
   }
 }
 
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes scale-in {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.97);
   }
   to {
     opacity: 1;
@@ -177,7 +351,7 @@ body {
     opacity: 1;
   }
   50% {
-    opacity: 0.7;
+    opacity: 0.55;
   }
 }
 
@@ -190,248 +364,391 @@ body {
   }
 }
 
-@keyframes bounce-subtle {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
-}
-
-@keyframes glow-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 5px rgb(59 130 246 / 0.3);
-  }
-  50% {
-    box-shadow: 0 0 20px rgb(59 130 246 / 0.5);
-  }
-}
-
-/* Animation utility classes */
 .animate-fade-in {
-  animation: fade-in var(--transition-normal) ease-out;
+  animation: fade-in var(--transition-normal);
 }
-
 .animate-fade-in-up {
-  animation: fade-in-up var(--transition-slow) ease-out;
+  animation: fade-in-up var(--transition-slow);
 }
-
 .animate-fade-in-down {
-  animation: fade-in-down var(--transition-slow) ease-out;
+  animation: fade-in-down var(--transition-slow);
 }
-
 .animate-slide-in-right {
-  animation: slide-in-right var(--transition-slow) ease-out;
+  animation: slide-in-right var(--transition-slow);
 }
-
+.animate-slide-up {
+  animation: slide-up var(--transition-slow);
+}
 .animate-scale-in {
-  animation: scale-in var(--transition-normal) ease-out;
+  animation: scale-in var(--transition-fast);
 }
-
-.animate-shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgb(255 255 255 / 0.1) 50%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 2s infinite;
-}
-
 .animate-pulse-soft {
-  animation: pulse-soft 2s ease-in-out infinite;
+  animation: pulse-soft 2.4s ease-in-out infinite;
 }
-
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
 }
 
-.animate-bounce-subtle {
-  animation: bounce-subtle 2s ease-in-out infinite;
+/* Staggered list entrances — set --i on the child. */
+.stagger > * {
+  animation: fade-in-up var(--transition-slow) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
 }
 
-.animate-glow-pulse {
-  animation: glow-pulse 2s ease-in-out infinite;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ============================================
-   COMPONENT STYLES
+   COMPONENTS
    ============================================ */
 @layer components {
-  /* Card Styles */
+  /* ---- Surfaces ---------------------------------------------------- */
+
+  /* Cards are border-defined at rest. Elevation is reserved for things
+     that genuinely float (popovers, modals, sticky bars) so the page
+     doesn't read as a pile of drop shadows. */
   .card {
-    @apply bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-200 dark:border-slate-800;
-    @apply transition-all duration-200;
+    @apply bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800;
+    @apply transition-[border-color,box-shadow] duration-200 ease-premium;
   }
 
   .card-hover {
-    @apply hover:shadow-lg hover:border-slate-300 dark:hover:border-slate-700;
-    @apply hover:-translate-y-0.5;
+    @apply hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm;
   }
 
   .card-interactive {
     @apply card card-hover cursor-pointer;
-    @apply active:scale-[0.99] active:shadow-md;
+    @apply active:scale-[0.995] active:transition-none;
   }
 
-  /* Glass Effect */
+  /* Section = a card with a labelled header rail. */
+  .section-header {
+    @apply flex items-center justify-between gap-3 px-5 py-3.5;
+    @apply border-b border-slate-200 dark:border-slate-800;
+  }
+
+  .section-title {
+    @apply text-sm font-semibold tracking-tight text-slate-900 dark:text-white;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400;
+  }
+
+  .well {
+    @apply rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800;
+  }
+
   .glass {
-    @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl;
-    @apply border border-white/20 dark:border-slate-700/50;
+    @apply bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl;
+    @apply border border-slate-200/80 dark:border-slate-700/60;
   }
 
-  /* Button Styles */
+  /* ---- Buttons ------------------------------------------------------ */
+
   .btn {
-    @apply inline-flex items-center justify-center gap-2;
-    @apply px-4 py-2.5 rounded-lg font-medium text-sm;
-    @apply transition-all duration-200 ease-out;
-    @apply focus:outline-none focus:ring-2 focus:ring-offset-2;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap;
+    @apply px-3.5 py-2 rounded-lg font-medium text-sm leading-none;
+    @apply transition-all duration-150 ease-premium select-none;
+    @apply disabled:opacity-45 disabled:pointer-events-none;
     @apply active:scale-[0.98];
   }
 
+  /* One focus treatment for every control, drawn from --primary so it
+     re-tones with the brand: a surface-coloured gap, then the accent
+     halo. Written as a shadow rather than Tailwind's ring utilities so
+     it survives the accent inverting in dark mode. */
+  .btn:focus-visible,
+  .btn-icon:focus-visible,
+  .segmented-item:focus-visible,
+  .focus-ring:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px rgb(var(--surface)),
+      0 0 0 4px rgb(var(--primary) / 0.45);
+  }
+
+  /* The inset top highlight is what separates a "premium" solid button
+     from a flat coloured rectangle. */
   .btn-primary {
-    @apply btn bg-gradient-to-b from-primary-500 to-primary-600;
-    @apply text-white shadow-md shadow-primary-600/25;
-    @apply hover:from-primary-600 hover:to-primary-700 hover:shadow-lg hover:shadow-primary-600/30;
-    @apply focus:ring-primary-500;
+    @apply btn shadow-sm hover:shadow-md;
+    background-color: rgb(var(--primary));
+    color: rgb(var(--on-primary));
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.14),
+      var(--shadow-sm);
+  }
+
+  .btn-primary:hover {
+    background-color: rgb(var(--primary-hover));
+  }
+
+  /* On a light accent (dark mode with a near-neutral brand) a white
+     inset line is invisible — shade the bottom edge instead so the
+     button still reads as a lit surface rather than a flat chip. */
+  :root.dark .btn-primary {
+    box-shadow:
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.14),
+      var(--shadow-sm);
   }
 
   .btn-secondary {
-    @apply btn bg-slate-100 dark:bg-slate-800;
-    @apply text-slate-700 dark:text-slate-300;
-    @apply hover:bg-slate-200 dark:hover:bg-slate-700;
-    @apply focus:ring-slate-500;
+    @apply btn bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200;
+    @apply border border-slate-200 dark:border-slate-700;
+    @apply hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-600;
   }
 
   .btn-ghost {
-    @apply btn bg-transparent;
-    @apply text-slate-600 dark:text-slate-400;
-    @apply hover:bg-slate-100 dark:hover:bg-slate-800;
-    @apply focus:ring-slate-500;
+    @apply btn bg-transparent text-slate-600 dark:text-slate-400;
+    @apply hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white;
   }
 
   .btn-danger {
-    @apply btn bg-gradient-to-b from-red-600 to-red-700;
-    @apply text-white shadow-md shadow-red-500/25;
-    @apply hover:from-red-700 hover:to-red-800 hover:shadow-lg hover:shadow-red-500/30;
-    @apply focus:ring-red-500;
+    @apply btn bg-rose-600 text-white shadow-sm hover:bg-rose-700;
+    @apply focus-visible:ring-rose-500/40;
   }
 
   .btn-success {
-    @apply btn bg-gradient-to-r from-emerald-600 to-emerald-700;
-    @apply text-white shadow-md shadow-emerald-500/25;
-    @apply hover:from-emerald-700 hover:to-emerald-800 hover:shadow-lg hover:shadow-emerald-500/30;
-    @apply focus:ring-emerald-500;
+    @apply btn bg-emerald-600 text-white shadow-sm hover:bg-emerald-700;
+    @apply focus-visible:ring-emerald-500/40;
   }
 
   .btn-outline {
-    @apply btn bg-transparent border-2 border-slate-300 dark:border-slate-600;
-    @apply text-slate-700 dark:text-slate-300;
+    @apply btn bg-transparent border border-slate-300 dark:border-slate-600;
+    @apply text-slate-700 dark:text-slate-200;
     @apply hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800;
-    @apply focus:ring-slate-500;
   }
 
-  /* Input Styles */
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-xs rounded-md gap-1;
+  }
+
+  .btn-lg {
+    @apply px-5 py-2.5 text-[15px] rounded-lg;
+  }
+
+  .btn-icon {
+    @apply p-2 rounded-lg text-slate-500 dark:text-slate-400;
+    @apply hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white;
+    @apply transition-colors duration-150;
+  }
+
+  /* ---- Form controls ------------------------------------------------ */
+
   .input {
-    @apply w-full px-4 py-2.5 rounded-lg;
-    @apply bg-white dark:bg-slate-800;
-    @apply border border-slate-300 dark:border-slate-600;
+    @apply w-full px-3 py-2 rounded-lg text-sm;
+    @apply bg-white dark:bg-slate-950/50;
+    @apply border border-slate-300 dark:border-slate-700;
     @apply text-slate-900 dark:text-slate-100;
-    @apply placeholder:text-slate-400 dark:placeholder:text-slate-500;
-    @apply transition-all duration-200;
-    @apply focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply placeholder:text-slate-400 dark:placeholder:text-slate-600;
+    @apply transition-[border-color,box-shadow] duration-150 ease-premium;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-slate-900;
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: rgb(var(--primary));
+    box-shadow: 0 0 0 3px rgb(var(--primary) / 0.2);
   }
 
   .input-error {
-    @apply border-red-500 focus:ring-red-500/50 focus:border-red-500;
+    @apply border-rose-500 focus:border-rose-500 focus:ring-rose-500/20;
   }
 
-  /* Select Styles */
   .select {
-    @apply input appearance-none cursor-pointer;
-    @apply bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')];
-    @apply bg-[length:1.5em_1.5em] bg-[right_0.5rem_center] bg-no-repeat;
-    @apply pr-10;
+    @apply input appearance-none cursor-pointer pr-9;
+    @apply bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7480%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.6%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')];
+    @apply bg-[length:1.25em_1.25em] bg-[right_0.6rem_center] bg-no-repeat;
   }
 
-  /* Badge Styles */
+  /* Native <select> keeps the arrow when styled this way in Safari. */
+  select.input {
+    @apply appearance-none pr-9 cursor-pointer;
+  }
+
+  .field-label {
+    @apply block text-[13px] font-medium text-slate-700 dark:text-slate-300;
+  }
+
+  .field-hint {
+    @apply text-xs text-slate-500 dark:text-slate-400 leading-relaxed;
+  }
+
+  .field-error {
+    @apply text-xs text-rose-600 dark:text-rose-400;
+  }
+
+  /* ---- Selectable surfaces ------------------------------------------
+     Cards, chips and pills that can be "the chosen one". Every selected
+     state in the app routes through these two classes, so the accent
+     appears in exactly one place per shape and inverts correctly on a
+     dark canvas. */
+
+  .card-select {
+    @apply text-left rounded-xl border p-4 cursor-pointer;
+    @apply transition-all duration-150 ease-premium;
+    @apply border-slate-200 dark:border-slate-800;
+    @apply hover:border-slate-300 dark:hover:border-slate-700;
+  }
+
+  /* `:hover` from .card-select outranks a plain class, so the selected
+     border has to be restated for it — otherwise selection visibly
+     drops out from under the cursor. */
+  .card-select-active,
+  .card-select-active:hover {
+    @apply card-select shadow-sm;
+    border-color: rgb(var(--primary));
+    background-color: rgb(var(--primary-soft) / 0.55);
+  }
+
+  .card-select:disabled,
+  .card-select-active:disabled {
+    @apply opacity-45 cursor-not-allowed;
+  }
+
+  /* Same idea at chip scale — model pills, small multi-selects. */
+  .pill-select {
+    @apply px-2 py-1 rounded-md text-xs font-mono border cursor-pointer;
+    @apply transition-all duration-150 ease-premium;
+    @apply border-slate-200 dark:border-slate-800;
+    @apply text-slate-400 dark:text-slate-500;
+    @apply hover:border-slate-300 dark:hover:border-slate-700;
+  }
+
+  .pill-select-active,
+  .pill-select-active:hover {
+    @apply pill-select;
+    border-color: rgb(var(--primary) / 0.6);
+    background-color: rgb(var(--primary-soft) / 0.7);
+    color: rgb(var(--text));
+  }
+
+  /* Solid accent fill for small non-button surfaces (switch tracks,
+     step markers, selection dots). */
+  .accent-fill {
+    background-color: rgb(var(--primary));
+    color: rgb(var(--on-primary));
+  }
+
+  .accent-border {
+    border-color: rgb(var(--primary));
+  }
+
+  .accent-text {
+    color: rgb(var(--primary));
+  }
+
+  /* Checkbox / radio rows that behave as one big hit target. */
+  .option-row {
+    @apply flex items-start gap-2.5 px-3 py-2 rounded-lg cursor-pointer;
+    @apply transition-colors duration-150;
+    @apply hover:bg-slate-50 dark:hover:bg-slate-800/60;
+  }
+
+  /* ---- Segmented control -------------------------------------------- */
+
+  .segmented {
+    @apply inline-flex items-center gap-0.5 p-0.5 rounded-lg;
+    @apply bg-slate-100 dark:bg-slate-800/80;
+    @apply border border-slate-200 dark:border-slate-800;
+  }
+
+  .segmented-item {
+    @apply px-3 py-1.5 rounded-[6px] text-[13px] font-medium whitespace-nowrap;
+    @apply text-slate-600 dark:text-slate-400;
+    @apply transition-all duration-150 ease-premium;
+    @apply hover:text-slate-900 dark:hover:text-slate-100;
+  }
+
+  .segmented-item-active {
+    @apply segmented-item bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs;
+  }
+
+  /* ---- Badges & chips ------------------------------------------------ */
+
   .badge {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium;
-    @apply transition-colors duration-200;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium leading-5;
+    @apply ring-1 ring-inset;
   }
 
   .badge-success {
-    @apply badge bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400;
+    @apply badge bg-emerald-50 text-emerald-700 ring-emerald-600/20;
+    @apply dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/25;
   }
 
   .badge-warning {
-    @apply badge bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400;
+    @apply badge bg-amber-50 text-amber-700 ring-amber-600/20;
+    @apply dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/25;
   }
 
   .badge-danger {
-    @apply badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400;
+    @apply badge bg-rose-50 text-rose-700 ring-rose-600/20;
+    @apply dark:bg-rose-500/10 dark:text-rose-400 dark:ring-rose-500/25;
   }
 
   .badge-info {
-    @apply badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400;
+    @apply badge bg-primary-50 text-primary-700 ring-primary-600/20;
+    @apply dark:bg-primary-500/10 dark:text-primary-300 dark:ring-primary-500/25;
   }
 
   .badge-neutral {
-    @apply badge bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-400;
+    @apply badge bg-slate-100 text-slate-600 ring-slate-500/15;
+    @apply dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-100/10;
   }
 
-  /* Tab Styles */
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium;
+    @apply bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300;
+  }
+
+  .kbd {
+    @apply inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded;
+    @apply text-[11px] font-medium font-mono;
+    @apply bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400;
+    @apply border border-slate-200 dark:border-slate-700;
+  }
+
+  /* ---- Tabs ---------------------------------------------------------- */
+
   .tab-list {
-    @apply flex gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800;
+    @apply flex gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80;
   }
 
   .tab {
-    @apply flex-1 px-4 py-2.5 rounded-lg text-sm font-medium;
+    @apply flex-1 px-4 py-2 rounded-lg text-sm font-medium;
     @apply text-slate-600 dark:text-slate-400;
-    @apply transition-all duration-200;
-    @apply hover:text-slate-900 dark:hover:text-slate-200;
+    @apply transition-all duration-150 ease-premium;
+    @apply hover:text-slate-900 dark:hover:text-slate-100;
   }
 
   .tab-active {
-    @apply tab bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm;
+    @apply tab bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs;
   }
 
-  /* Stat Card */
-  .stat-card {
-    @apply p-4 rounded-xl;
-    @apply transition-all duration-200;
-    @apply hover:shadow-md hover:-translate-y-0.5;
+  /* Underline tabs, for page-level navigation. */
+  .tab-underline {
+    @apply relative px-1 pb-2.5 text-sm font-medium -mb-px border-b-2 border-transparent;
+    @apply text-slate-500 dark:text-slate-400;
+    @apply transition-colors duration-150;
+    @apply hover:text-slate-900 dark:hover:text-slate-100;
   }
 
-  .stat-card-blue {
-    @apply stat-card bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20;
-    @apply border border-blue-200/50 dark:border-blue-700/30;
+  .tab-underline-active {
+    @apply tab-underline text-slate-900 dark:text-white;
+    border-bottom-color: rgb(var(--primary));
   }
 
-  .stat-card-green {
-    @apply stat-card bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/20 dark:to-emerald-800/20;
-    @apply border border-emerald-200/50 dark:border-emerald-700/30;
-  }
+  /* ---- Data display -------------------------------------------------- */
 
-  .stat-card-purple {
-    @apply stat-card bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20;
-    @apply border border-purple-200/50 dark:border-purple-700/30;
-  }
-
-  .stat-card-orange {
-    @apply stat-card bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20;
-    @apply border border-orange-200/50 dark:border-orange-700/30;
-  }
-
-  /* Table Styles */
   .table-container {
-    @apply overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700;
+    @apply overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800;
   }
 
   .table {
@@ -439,86 +756,148 @@ body {
   }
 
   .table thead {
-    @apply bg-slate-50 dark:bg-slate-800/50;
+    @apply bg-slate-50 dark:bg-slate-900/60;
   }
 
   .table th {
-    @apply px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300;
+    @apply px-4 py-2.5 text-left font-semibold text-[11px] uppercase tracking-[0.06em];
+    @apply text-slate-500 dark:text-slate-400;
   }
 
   .table tbody tr {
-    @apply border-t border-slate-200 dark:border-slate-700;
+    @apply border-t border-slate-200 dark:border-slate-800;
     @apply transition-colors duration-150;
-    @apply hover:bg-slate-50 dark:hover:bg-slate-800/50;
+    @apply hover:bg-slate-50 dark:hover:bg-slate-800/40;
   }
 
   .table td {
-    @apply px-4 py-3 text-slate-600 dark:text-slate-400;
+    @apply px-4 py-3 text-slate-600 dark:text-slate-300;
   }
 
-  /* Empty State */
   .empty-state {
-    @apply flex flex-col items-center justify-center py-16 px-8 text-center;
-    @apply rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700;
+    @apply flex flex-col items-center justify-center py-14 px-8 text-center;
+    @apply rounded-xl border border-dashed border-slate-300 dark:border-slate-700;
   }
 
   .empty-state-icon {
-    @apply w-16 h-16 mb-4 text-slate-300 dark:text-slate-600;
+    @apply w-11 h-11 mb-3.5 text-slate-300 dark:text-slate-600;
   }
 
   .empty-state-title {
-    @apply text-lg font-semibold text-slate-700 dark:text-slate-300 mb-2;
+    @apply text-[15px] font-semibold text-slate-900 dark:text-white mb-1;
   }
 
   .empty-state-description {
-    @apply text-sm text-slate-500 dark:text-slate-400 max-w-sm;
+    @apply text-sm text-slate-500 dark:text-slate-400 max-w-sm leading-relaxed;
   }
 
-  /* Loading States */
+  /* ---- Feedback ------------------------------------------------------ */
+
+  /* Callouts carry a left accent rail rather than a full tinted box —
+     less shouty, and it survives long bodies of text. */
+  .callout {
+    @apply rounded-lg border-l-[3px] px-3.5 py-3 text-sm leading-relaxed;
+  }
+
+  .callout-info {
+    @apply callout border-l-primary-600 bg-primary-50/70 text-primary-900;
+    @apply dark:border-l-primary-500 dark:bg-primary-500/10 dark:text-primary-200;
+  }
+
+  .callout-warning {
+    @apply callout border-l-amber-500 bg-amber-50/70 text-amber-900;
+    @apply dark:border-l-amber-500 dark:bg-amber-500/10 dark:text-amber-200;
+  }
+
+  .callout-danger {
+    @apply callout border-l-rose-500 bg-rose-50/70 text-rose-900;
+    @apply dark:border-l-rose-500 dark:bg-rose-500/10 dark:text-rose-200;
+  }
+
+  .callout-success {
+    @apply callout border-l-emerald-500 bg-emerald-50/70 text-emerald-900;
+    @apply dark:border-l-emerald-500 dark:bg-emerald-500/10 dark:text-emerald-200;
+  }
+
   .skeleton {
-    @apply bg-slate-200 dark:bg-slate-700 rounded animate-pulse;
+    @apply rounded-md bg-slate-200/70 dark:bg-slate-800 relative overflow-hidden;
+  }
+
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 bg-shimmer;
+    background-size: 200% 100%;
+    animation: shimmer 1.8s infinite;
   }
 
   .loading-spinner {
-    @apply w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin;
+    @apply w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin;
   }
 
-  /* Tooltip */
   .tooltip {
     @apply relative;
   }
 
   .tooltip::after {
-    @apply invisible absolute z-50 px-2 py-1 text-xs text-white bg-slate-900 dark:bg-slate-700 rounded;
+    @apply invisible absolute z-50 px-2 py-1 text-xs font-medium text-white rounded-md;
+    @apply bg-slate-900 dark:bg-slate-700;
     @apply -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap;
-    @apply opacity-0 transition-all duration-200;
+    @apply opacity-0 transition-opacity duration-150;
     content: attr(data-tooltip);
+    box-shadow: var(--shadow-md);
   }
 
-  .tooltip:hover::after {
+  .tooltip:hover::after,
+  .tooltip:focus-visible::after {
     @apply visible opacity-100;
+  }
+
+  /* Wrapping variant, for tooltips that carry a sentence rather than a
+     label — the credential-type explainer, mostly. */
+  .tooltip-rich::after {
+    @apply w-64 whitespace-normal normal-case font-normal leading-relaxed;
+    @apply -top-2 -translate-y-full text-left px-2.5 py-2;
+  }
+
+  /* The little ⓘ that opens one. Inherits hit-target sizing so it can
+     sit inline next to a label without shifting the baseline. */
+  .info-dot {
+    @apply inline-flex items-center justify-center w-4 h-4 shrink-0 rounded-full align-[-2px];
+    @apply text-slate-400 hover:text-slate-700 dark:hover:text-slate-200;
+    @apply transition-colors duration-150 cursor-help;
+  }
+
+  /* ---- Code ---------------------------------------------------------- */
+
+  .code-block {
+    @apply rounded-lg p-3.5 text-xs font-mono leading-relaxed overflow-x-auto;
+    @apply bg-slate-900 dark:bg-slate-950 text-slate-200;
+    @apply border border-slate-800 dark:border-slate-800;
+  }
+
+  .code-inline {
+    @apply px-1.5 py-0.5 rounded text-[0.85em] font-mono;
+    @apply bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300;
   }
 }
 
 /* ============================================
-   UTILITY CLASSES
+   UTILITIES
    ============================================ */
 @layer utilities {
-  /* Text Gradient */
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-500 to-primary-700;
+    @apply bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-primary-600 to-primary-400;
+    @apply dark:from-primary-400 dark:to-primary-200;
   }
 
-  .text-gradient-emerald {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-teal-600;
-  }
-
-  /* Focus Ring */
+  /* Focus treatment itself lives with the buttons in @layer components
+     (one rule, drawn from --primary); this only needs to exist so the
+     class name is available to markup. */
   .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900;
+    @apply outline-none;
   }
 
-  /* Scrollbar Hide */
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -528,7 +907,6 @@ body {
     display: none;
   }
 
-  /* Truncate with Ellipsis */
   .truncate-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -543,32 +921,40 @@ body {
     overflow: hidden;
   }
 
-  /* Pattern Backgrounds */
+  /* Ambient page texture. Kept near-invisible — it should register as
+     "this surface has depth", never as a visible pattern. */
   .pattern-dots {
     background-image: radial-gradient(
-      rgb(148 163 184 / 0.3) 1px,
+      rgb(var(--text-subtle) / 0.22) 1px,
       transparent 1px
     );
-    background-size: 20px 20px;
+    background-size: 22px 22px;
   }
 
   .pattern-grid {
     background-image:
-      linear-gradient(rgb(148 163 184 / 0.1) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(148 163 184 / 0.1) 1px, transparent 1px);
-    background-size: 20px 20px;
+      linear-gradient(rgb(var(--text-subtle) / 0.09) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--text-subtle) / 0.09) 1px, transparent 1px);
+    background-size: 28px 28px;
   }
 
-  /* Glow Effects */
-  .glow-sm {
-    box-shadow: 0 0 10px rgb(59 130 246 / 0.3);
+  /* Soft brand light source behind hero/auth surfaces. Uses --glow, not
+     the accent: a near-black brand would render this as a smudge. */
+  .aura {
+    @apply pointer-events-none absolute rounded-full blur-3xl;
+    background: radial-gradient(
+      circle,
+      rgb(var(--glow) / 0.18) 0%,
+      transparent 70%
+    );
   }
 
-  .glow-md {
-    box-shadow: 0 0 20px rgb(59 130 246 / 0.4);
+  /* Hairline separators that read correctly on both themes. */
+  .divider-x {
+    @apply border-t border-slate-200 dark:border-slate-800;
   }
 
-  .glow-lg {
-    box-shadow: 0 0 30px rgb(59 130 246 / 0.5);
+  .divider-y {
+    @apply border-l border-slate-200 dark:border-slate-800;
   }
 }

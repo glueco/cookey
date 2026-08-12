@@ -22,6 +22,17 @@ interface RequestRow {
   allowStreaming: boolean;
 }
 
+interface OptionRow {
+  id: string;
+  name: string;
+  description: string;
+  recommended: boolean;
+  /** Indexes into the requests array */
+  requests: number[];
+  dailyRequests: string;
+  duration: string; // "" = inherit document duration
+}
+
 export default function GrantBuilderPage() {
   const [appName, setAppName] = useState("My App");
   const [appDescription, setAppDescription] = useState("");
@@ -44,6 +55,10 @@ export default function GrantBuilderPage() {
       allowStreaming: true,
     },
   ]);
+  // Options are OPTIONAL, and most apps want none: the requests above
+  // are already the ask, and the owner approves those. Start empty so
+  // the simple case produces the simple document.
+  const [options, setOptions] = useState<OptionRow[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
   const [tab, setTab] = useState<"json" | "preview" | "snippets">("json");
 
@@ -69,6 +84,19 @@ export default function GrantBuilderPage() {
           ...(row.allowStreaming === false && { allowStreaming: false }),
         },
       })),
+      ...(options.length > 0 && {
+        options: options.map((option, i) => ({
+          id: option.id || `option-${i + 1}`,
+          name: option.name || `Option ${i + 1}`,
+          ...(option.description && { description: option.description }),
+          ...(option.recommended && { recommended: true }),
+          requests: option.requests.filter((r) => r < requests.length),
+          ...(option.dailyRequests && {
+            budget: { dailyRequests: parseInt(option.dailyRequests, 10) },
+          }),
+          ...(option.duration && { duration: option.duration }),
+        })),
+      }),
       duration,
       ...(renewable && { renewal: { period: renewalPeriod } }),
       budget: {
@@ -78,7 +106,7 @@ export default function GrantBuilderPage() {
       ...(redirectUri && { redirectUri }),
     };
     return doc;
-  }, [appName, appDescription, homepage, runtime, auth, publicKey, duration, renewable, renewalPeriod, dailyRequests, dailyTokens, redirectUri, requests]);
+  }, [appName, appDescription, homepage, runtime, auth, publicKey, duration, renewable, renewalPeriod, dailyRequests, dailyTokens, redirectUri, requests, options]);
 
   const json = JSON.stringify(document, null, 2);
 
@@ -109,7 +137,7 @@ const { approvalUrl } = await submitGrant({
   return (
     <main className="min-h-screen max-w-6xl mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+        <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-slate-900 dark:text-white">
           Grant builder
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -200,16 +228,151 @@ const { approvalUrl } = await submitGrant({
                     streaming
                   </label>
                   {requests.length > 1 && (
-                    <button className="text-red-500 text-xs mt-4 ml-auto" onClick={() => setRequests((prev) => prev.filter((_, i) => i !== index))}>
+                    <button
+                      className="text-rose-500 text-xs mt-4 ml-auto"
+                      onClick={() => {
+                        setRequests((prev) => prev.filter((_, i) => i !== index));
+                        // Remap option request-indexes past the removed row
+                        setOptions((prev) =>
+                          prev.map((o) => ({
+                            ...o,
+                            requests: o.requests
+                              .filter((r) => r !== index)
+                              .map((r) => (r > index ? r - 1 : r)),
+                          })),
+                        );
+                      }}
+                    >
                       remove
                     </button>
                   )}
                 </div>
               </div>
             ))}
-            <button className="text-xs text-primary-600 underline" onClick={() => setRequests((prev) => [...prev, { resource: "llm:*", actions: "chat.completions", reason: "", maxOutputTokens: "", allowStreaming: true }])}>
+            <button
+              className="text-xs text-primary-600 underline"
+              onClick={() => {
+                const newIndex = requests.length;
+                setRequests((prev) => [...prev, { resource: "llm:*", actions: "chat.completions", reason: "", maxOutputTokens: "", allowStreaming: true }]);
+                // Options that covered every request keep covering everything
+                setOptions((prev) =>
+                  prev.map((o) =>
+                    o.requests.length === newIndex
+                      ? { ...o, requests: [...o.requests, newIndex] }
+                      : o,
+                  ),
+                );
+              }}
+            >
               + add request
             </button>
+          </div>
+
+          {/* Access options — Google-consent-style bundles the owner picks from */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                Access options{" "}
+                <span className="font-normal text-xs text-slate-400">
+                  (optional)
+                </span>
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Only for apps that genuinely have tiers. The requests above
+                are already what you're asking for, and the owner approves
+                those by default; an option is a smaller bundle they can
+                pick instead. Ship none unless your app has a real
+                read-only-vs-full distinction.
+              </p>
+            </div>
+            {options.map((option, index) => (
+              <div key={index} className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-xs text-slate-500">
+                    Name
+                    <input className="input w-full mt-1 text-sm" placeholder="Basic" value={option.name} onChange={(e) => setOptions((prev) => prev.map((o, i) => (i === index ? { ...o, name: e.target.value, id: o.id || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-") } : o)))} />
+                  </label>
+                  <label className="block text-xs text-slate-500">
+                    Description
+                    <input className="input w-full mt-1 text-sm" placeholder="Chat only, small budget" value={option.description} onChange={(e) => setOptions((prev) => prev.map((o, i) => (i === index ? { ...o, description: e.target.value } : o)))} />
+                  </label>
+                </div>
+                <div className="text-xs text-slate-500">
+                  Includes:
+                  <span className="inline-flex flex-wrap gap-2 ml-2">
+                    {requests.map((row, rIndex) => (
+                      <label key={rIndex} className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={option.requests.includes(rIndex)}
+                          onChange={(e) =>
+                            setOptions((prev) =>
+                              prev.map((o, i) =>
+                                i === index
+                                  ? {
+                                      ...o,
+                                      requests: e.target.checked
+                                        ? [...o.requests, rIndex].sort()
+                                        : o.requests.filter((r) => r !== rIndex),
+                                    }
+                                  : o,
+                              ),
+                            )
+                          }
+                        />
+                        <span className="font-mono">{row.resource || `request ${rIndex + 1}`}</span>
+                      </label>
+                    ))}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="block text-xs text-slate-500">
+                    Daily requests
+                    <input type="number" className="input w-24 mt-1 text-sm" placeholder="inherit" value={option.dailyRequests} onChange={(e) => setOptions((prev) => prev.map((o, i) => (i === index ? { ...o, dailyRequests: e.target.value } : o)))} />
+                  </label>
+                  <label className="block text-xs text-slate-500">
+                    Duration
+                    <select className="input w-28 mt-1 text-sm" value={option.duration} onChange={(e) => setOptions((prev) => prev.map((o, i) => (i === index ? { ...o, duration: e.target.value } : o)))}>
+                      <option value="">inherit</option>
+                      {["24h", "7d", "30d", "90d"].map((d) => (<option key={d}>{d}</option>))}
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-1 text-xs text-slate-500 mt-4">
+                    <input type="checkbox" checked={option.recommended} onChange={(e) => setOptions((prev) => prev.map((o, i) => (i === index ? { ...o, recommended: e.target.checked } : o)))} />
+                    suggested
+                  </label>
+                  <button className="text-rose-500 text-xs mt-4 ml-auto" onClick={() => setOptions((prev) => prev.filter((_, i) => i !== index))}>
+                    remove
+                  </button>
+                </div>
+                {option.requests.length === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    pick at least one request — an empty option is invalid
+                  </p>
+                )}
+              </div>
+            ))}
+            {options.length < 5 && (
+              <button
+                className="text-xs text-primary-600 underline"
+                onClick={() =>
+                  setOptions((prev) => [
+                    ...prev,
+                    {
+                      id: "",
+                      name: "",
+                      description: "",
+                      recommended: prev.length === 0,
+                      requests: requests.map((_, i) => i),
+                      dailyRequests: "",
+                      duration: "",
+                    },
+                  ])
+                }
+              >
+                + add access option
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -246,21 +409,25 @@ const { approvalUrl } = await submitGrant({
 
         {/* ---- Outputs ---- */}
         <div className="space-y-3">
-          <div className="flex gap-2">
+          <div className="segmented">
             {(["json", "preview", "snippets"] as const).map((t) => (
               <button
                 key={t}
-                className={`px-3 py-1 rounded-full text-xs font-medium ${tab === t ? "bg-primary-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"}`}
+                className={tab === t ? "segmented-item-active" : "segmented-item"}
                 onClick={() => setTab(t)}
               >
-                {t === "json" ? "grant.json" : t === "preview" ? "Owner preview" : "Snippets"}
+                {t === "json"
+                  ? "grant.json"
+                  : t === "preview"
+                    ? "Owner preview"
+                    : "Snippets"}
               </button>
             ))}
           </div>
 
           {tab === "json" && (
             <div className="relative">
-              <pre className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs overflow-x-auto text-slate-700 dark:text-slate-200">
+              <pre className="code-block">
                 {json}
               </pre>
               <button className="absolute top-2 right-2 btn-secondary text-xs" onClick={() => copy("json", json)}>
@@ -305,7 +472,7 @@ const { approvalUrl } = await submitGrant({
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Bearer usage (after approval — zero dependencies)
                 </p>
-                <pre className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs overflow-x-auto text-slate-700 dark:text-slate-200">
+                <pre className="code-block">
                   {bearerSnippet}
                 </pre>
                 <button className="absolute top-6 right-2 text-xs text-primary-600" onClick={() => copy("bearer", bearerSnippet)}>
@@ -317,7 +484,7 @@ const { approvalUrl } = await submitGrant({
                   <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     PoP submission (@glueco/sdk)
                   </p>
-                  <pre className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs overflow-x-auto text-slate-700 dark:text-slate-200">
+                  <pre className="code-block">
                     {popSnippet}
                   </pre>
                   <button className="absolute top-6 right-2 text-xs text-primary-600" onClick={() => copy("pop", popSnippet)}>

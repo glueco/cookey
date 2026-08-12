@@ -1,9 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    serverComponentsExternalPackages: ["@noble/ed25519", "@noble/hashes"],
-  },
+  // Next 15 promoted this out of `experimental`.
+  serverExternalPackages: ["@noble/ed25519", "@noble/hashes"],
   async headers() {
     return [
       {

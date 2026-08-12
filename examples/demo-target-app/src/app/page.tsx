@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Suspense, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { fetchDiscovery, type DiscoveryResource } from "@/lib/discovery";
+import { DemoMark } from "@/components/DemoMark";
 
 // ============================================
 // CONNECTION STORAGE (localStorage)
@@ -511,11 +512,14 @@ function HomePageContent() {
   return (
     <main className="min-h-screen py-12 px-4">
       <div className="max-w-xl mx-auto space-y-6">
-        {/* Header */}
+        {/* Header — the parametric bracket mark ([d▪]) is this app's
+            own identity in the Cookey system: every consumer wears its
+            initial. currentColor, so it re-tones with the theme. */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white shadow-lg shadow-primary-500/25 mb-2">
-            <ShieldCheckIcon />
-          </div>
+          <DemoMark
+            size={56}
+            className="inline-block text-gray-900 dark:text-gray-100 mb-2"
+          />
           <div>
             <span className="badge-brand">Cookey demo app</span>
           </div>

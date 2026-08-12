@@ -16,6 +16,11 @@ import {
 // remove (blocked while grants are bound).
 // ============================================
 
+interface PricingEntry {
+  inputPerMTok: number;
+  outputPerMTok: number;
+}
+
 interface ConnectorDetail {
   id: string;
   connectorId: string;
@@ -23,7 +28,11 @@ interface ConnectorDetail {
   source: "BUILTIN" | "REGISTRY" | "URL" | "CUSTOM";
   sourceUrl: string | null;
   enabled: boolean;
-  document: ConnectorDocShape;
+  document: ConnectorDocShape & {
+    models?: string[];
+    pricing?: Record<string, PricingEntry>;
+  };
+  pricingOverrides: Record<string, PricingEntry> | null;
 }
 
 interface UpdateCheck {
@@ -101,7 +110,7 @@ export default function ConnectorDetailPage() {
   if (error) {
     return (
       <main className="min-h-screen max-w-2xl mx-auto p-6">
-        <p className="text-red-600">{error}</p>
+        <p className="text-rose-600">{error}</p>
         <Link href="/connectors" className="text-sm underline">
           ← Back
         </Link>
@@ -240,7 +249,7 @@ export default function ConnectorDetailPage() {
   return (
     <main className="min-h-screen max-w-2xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+        <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-slate-900 dark:text-white">
           {doc.name}
         </h1>
         <Link href="/connectors" className="text-sm text-slate-400 underline">
@@ -249,7 +258,7 @@ export default function ConnectorDetailPage() {
       </div>
 
       {message && (
-        <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200">
+        <div className="callout-info">
           {message}
         </div>
       )}
@@ -262,7 +271,7 @@ export default function ConnectorDetailPage() {
             {update.candidateVersion}
           </p>
           {update.hostsAdded.length > 0 && (
-            <p className="text-sm text-red-700 dark:text-red-300 font-semibold">
+            <p className="text-sm text-rose-700 dark:text-rose-300 font-semibold">
               ⚠ New egress hosts: {update.hostsAdded.join(", ")} — your
               credential will be sent to these hosts after updating.
             </p>
@@ -340,6 +349,17 @@ export default function ConnectorDetailPage() {
         </button>
       </section>
 
+      {/* Pricing — the one part of a frozen document the owner may
+          correct, because it describes THEIR bill: free tiers,
+          negotiated rates, models the document doesn't price. */}
+      <PricingSection
+        detail={detail}
+        onSaved={(note) => {
+          setMessage(note);
+          load();
+        }}
+      />
+
       {/* Frozen document */}
       <section className="card p-4">
         <ConnectorReview document={doc} trust={TRUST[detail.source]} />
@@ -365,7 +385,7 @@ export default function ConnectorDetailPage() {
           </button>
         )}
         <button
-          className="btn-secondary text-sm text-red-600"
+          className="btn-secondary text-sm text-rose-600"
           disabled={busy === "remove" || boundGrants.length > 0}
           onClick={remove}
         >
@@ -379,5 +399,216 @@ export default function ConnectorDetailPage() {
         </p>
       )}
     </main>
+  );
+}
+
+// ============================================
+// PRICING EDITOR
+// Effective rate = owner override ?? document pricing. Overrides live
+// on the row, never in the frozen document, and drive everything
+// priced: spend budgets, the approval screen's worst-case projection,
+// per-request cost estimates. 0/0 marks a model explicitly free —
+// different from blank, which means "no pricing data, no estimates".
+// ============================================
+
+function PricingSection({
+  detail,
+  onSaved,
+}: {
+  detail: ConnectorDetail;
+  onSaved: (note: string) => void;
+}) {
+  const doc = detail.document;
+  const documentPricing = doc.pricing ?? {};
+  const overrides = detail.pricingOverrides ?? {};
+
+  const models = [
+    ...new Set([
+      ...(doc.models ?? []),
+      ...Object.keys(documentPricing),
+      ...Object.keys(overrides),
+    ]),
+  ];
+
+  const toDraft = (entry: PricingEntry | undefined) => ({
+    input: entry ? String(entry.inputPerMTok) : "",
+    output: entry ? String(entry.outputPerMTok) : "",
+  });
+  const initialDraft = () =>
+    Object.fromEntries(
+      models.map((model) => [
+        model,
+        toDraft(overrides[model] ?? documentPricing[model]),
+      ]),
+    );
+
+  const [draft, setDraft] = useState<
+    Record<string, { input: string; output: string }>
+  >(initialDraft);
+  const [saving, setSaving] = useState(false);
+
+  // Reload after save/update re-anchors the drafts to the new effective
+  // rates — detail identity changes only when `load()` refetches.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setDraft(initialDraft()), [detail]);
+
+  if (models.length === 0) return null;
+
+  const dirty = models.some((model) => {
+    const initial = toDraft(overrides[model] ?? documentPricing[model]);
+    return (
+      draft[model]?.input !== initial.input ||
+      draft[model]?.output !== initial.output
+    );
+  });
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      // A draft equal to the document's own rates needs no override —
+      // and clears any stale one, so document updates flow again.
+      const patch: Record<string, PricingEntry | null> = {};
+      for (const model of models) {
+        const { input, output } = draft[model] ?? { input: "", output: "" };
+        const docEntry = documentPricing[model];
+        const blank = input.trim() === "" && output.trim() === "";
+        const entry: PricingEntry | null = blank
+          ? null
+          : {
+              inputPerMTok: Math.max(0, parseFloat(input) || 0),
+              outputPerMTok: Math.max(0, parseFloat(output) || 0),
+            };
+        const matchesDocument =
+          (entry === null && !docEntry) ||
+          (entry !== null &&
+            docEntry &&
+            docEntry.inputPerMTok === entry.inputPerMTok &&
+            docEntry.outputPerMTok === entry.outputPerMTok);
+        patch[model] = matchesDocument ? null : entry;
+      }
+      const res = await fetch(
+        `/api/admin/connectors/${encodeURIComponent(detail.connectorId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pricingOverrides: patch }),
+        },
+      );
+      if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
+      onSaved("Pricing saved — estimates and spend budgets use these rates.");
+    } catch (err) {
+      onSaved(err instanceof Error ? err.message : "Saving pricing failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+          Pricing
+        </h2>
+        {Object.keys(overrides).length > 0 && (
+          <span className="badge-info">
+            {Object.keys(overrides).length} edited
+          </span>
+        )}
+      </div>
+      <p className="field-hint">
+        $ per million tokens, as billed to <em>you</em>. Spend estimates and
+        budgets follow these numbers. Set 0 / 0 for a model you use free;
+        leave both blank when the rate is unknown (no estimate is better than
+        a wrong one). The connector document itself stays frozen.
+      </p>
+
+      <div className="overflow-x-auto">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th className="text-right">Input $/MTok</th>
+              <th className="text-right">Output $/MTok</th>
+              <th className="text-right">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {models.map((model) => {
+              const row = draft[model] ?? { input: "", output: "" };
+              const overridden = model in overrides;
+              const blank = row.input === "" && row.output === "";
+              const free =
+                !blank &&
+                (parseFloat(row.input) || 0) === 0 &&
+                (parseFloat(row.output) || 0) === 0;
+              return (
+                <tr key={model}>
+                  <td className="font-mono text-xs">{model}</td>
+                  {(["input", "output"] as const).map((side) => (
+                    <td key={side} className="text-right">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="input !w-24 !px-2 !py-1 text-right text-xs tabular-nums inline-block"
+                        placeholder="—"
+                        aria-label={`${model} ${side} price per million tokens`}
+                        value={row[side]}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            [model]: { ...row, [side]: event.target.value },
+                          }))
+                        }
+                      />
+                    </td>
+                  ))}
+                  <td className="text-right">
+                    {blank ? (
+                      <span className="badge-neutral">unpriced</span>
+                    ) : free ? (
+                      <span className="badge-success">free</span>
+                    ) : overridden ? (
+                      <button
+                        className="badge-info"
+                        title="Reset to the document's rates"
+                        onClick={() =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            [model]: toDraft(documentPricing[model]),
+                          }))
+                        }
+                      >
+                        edited · reset
+                      </button>
+                    ) : (
+                      <span className="badge-neutral">document</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {dirty && (
+        <div className="flex items-center justify-end gap-3">
+          <button
+            className="btn-secondary btn-sm"
+            onClick={() => setDraft(initialDraft())}
+          >
+            Discard
+          </button>
+          <button
+            className="btn-primary btn-sm"
+            disabled={saving}
+            onClick={save}
+          >
+            {saving ? "Saving…" : "Save pricing"}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

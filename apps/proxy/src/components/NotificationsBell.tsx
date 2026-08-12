@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { RelativeTime } from "@/components/ui";
 
 // ============================================
 // NOTIFICATIONS BELL
@@ -79,8 +80,13 @@ export function NotificationsBell() {
   return (
     <div ref={containerRef} className="relative">
       <button
-        aria-label="Notifications"
-        className="relative p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+        aria-label={
+          unreadCount > 0
+            ? `Notifications, ${unreadCount} unread`
+            : "Notifications"
+        }
+        title="Notifications"
+        className="btn-icon relative"
         onClick={() => setOpen((v) => !v)}
       >
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -92,21 +98,21 @@ export function NotificationsBell() {
           />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-96 max-h-[28rem] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-700">
-            <span className="text-sm font-semibold text-slate-900 dark:text-white">
-              Notifications
-            </span>
+        // The bell lives at the BOTTOM of the sidebar — the panel opens
+        // upward and to the right so it never clips off-screen.
+        <div className="absolute bottom-full mb-2 left-0 w-[22rem] max-h-[28rem] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl z-50 animate-scale-in origin-bottom-left">
+          <div className="section-header sticky top-0 bg-white dark:bg-slate-900 rounded-t-xl">
+            <span className="section-title">Notifications</span>
             {unreadCount > 0 && (
               <button
-                className="text-xs text-primary-600 dark:text-primary-400"
+                className="text-xs text-primary-600 dark:text-primary-400 hover:underline underline-offset-2"
                 onClick={markAllRead}
               >
                 Mark all read
@@ -114,8 +120,8 @@ export function NotificationsBell() {
             )}
           </div>
           {items.length === 0 ? (
-            <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
-              Nothing yet.
+            <p className="p-5 field-hint text-center">
+              Nothing to report. Grant requests and budget warnings land here.
             </p>
           ) : (
             items.map((item) => (
@@ -125,18 +131,21 @@ export function NotificationsBell() {
                 tabIndex={0}
                 onClick={() => openItem(item)}
                 onKeyDown={(e) => e.key === "Enter" && openItem(item)}
-                className={`px-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                  item.readAt ? "opacity-60" : ""
+                className={`relative px-4 py-3 border-b border-slate-100 dark:border-slate-800/70 last:border-0 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors ${
+                  item.readAt ? "opacity-55" : ""
                 }`}
               >
-                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                {!item.readAt && (
+                  <span className="absolute left-1.5 top-4 w-1.5 h-1.5 rounded-full bg-primary-600 dark:bg-primary-500" />
+                )}
+                <p className="text-[13px] font-medium text-slate-900 dark:text-white">
                   {item.title}
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
                   {item.body}
                 </p>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                  {new Date(item.createdAt).toLocaleString()}
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
+                  <RelativeTime value={item.createdAt} />
                 </p>
               </div>
             ))

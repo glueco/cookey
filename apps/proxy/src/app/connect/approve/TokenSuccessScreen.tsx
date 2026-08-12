@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CopyButton } from "@/components/ui";
 
 // ============================================
 // TOKEN COPY-PASTE SCREEN
@@ -14,20 +15,49 @@ interface Props {
   boundResources: string[];
 }
 
+interface VerifyState {
+  status: "idle" | "checking" | "done" | "failed";
+  message?: string;
+}
+
 export function TokenSuccessScreen({ token, appName, boundResources }: Props) {
-  const [copied, setCopied] = useState<string | null>(null);
   const gateway =
-    typeof window !== "undefined" ? window.location.origin : "https://your-gateway";
+    typeof window !== "undefined"
+      ? window.location.origin
+      : "https://your-gateway";
+  const [verify, setVerify] = useState<VerifyState>({ status: "idle" });
+
+  // Side-effect-free credential check — /v1/token/verify deliberately
+  // does not count as the token's first use, so the copy-paste window
+  // stays open after testing.
+  const testToken = async () => {
+    setVerify({ status: "checking" });
+    try {
+      const res = await fetch("/v1/token/verify", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setVerify({
+          status: "done",
+          message: `Valid — ${data.operations} operation${
+            data.operations === 1 ? "" : "s"
+          } across ${data.services.join(", ")}`,
+        });
+      } else {
+        setVerify({
+          status: "failed",
+          message: data.reason ?? "The token did not validate",
+        });
+      }
+    } catch {
+      setVerify({ status: "failed", message: "Could not reach the gateway" });
+    }
+  };
   const llmResource = boundResources.find((r) => r.startsWith("llm:"));
   const providerPath = llmResource
     ? `/r/llm/${llmResource.split(":")[1]}`
     : "/r/llm/<provider>";
-
-  const copy = async (label: string, value: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 1500);
-  };
 
   const snippets: Array<{ label: string; code: string }> = [
     {
@@ -67,53 +97,94 @@ resp = client.chat.completions.create(
     },
   ];
 
+  const [openSnippet, setOpenSnippet] = useState(snippets[0].label);
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6 animate-fade-in-up">
       <div className="text-center">
-        <p className="text-lg font-semibold text-slate-900 dark:text-white">
-          Access granted to {appName}
+        <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+        </div>
+        <p className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
+          {appName} is connected
         </p>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Copy this token into the app's configuration. It stays viewable on
-          the grant page until its first request, then it can only be revoked
-          or regenerated.
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5 max-w-md mx-auto leading-relaxed">
+          Paste this token into the app's configuration. It stays viewable on
+          the grant page until its first request — after that it can only be
+          revoked or regenerated.
         </p>
       </div>
 
-      <div className="p-4 rounded-lg bg-slate-900 dark:bg-slate-800 flex items-center gap-3">
-        <code className="flex-1 text-sm text-emerald-300 font-mono break-all select-all">
-          {token}
-        </code>
-        <button
-          className="btn-secondary text-xs whitespace-nowrap"
-          onClick={() => copy("token", token)}
-        >
-          {copied === "token" ? "Copied!" : "Copy token"}
-        </button>
-      </div>
-
-      <div className="space-y-3">
-        {snippets.map((snippet) => (
-          <details
-            key={snippet.label}
-            className="rounded-lg border border-slate-200 dark:border-slate-700"
+      <div>
+        <p className="callout-warning mb-2">
+          This is the only convenient moment to copy it. Store it in the app's
+          secret manager, not in source control.
+        </p>
+        <div className="code-block flex items-center gap-3">
+          <code className="flex-1 text-sm text-emerald-300 break-all select-all">
+            {token}
+          </code>
+          <CopyButton
+            value={token}
+            label="Copy token"
+            className="btn-secondary btn-sm shrink-0"
+          />
+        </div>
+        <div className="mt-2 flex items-center gap-2.5">
+          <button
+            className="btn-secondary btn-sm"
+            onClick={testToken}
+            disabled={verify.status === "checking"}
           >
-            <summary className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 cursor-pointer select-none flex items-center justify-between">
-              {snippet.label}
-            </summary>
-            <div className="relative">
-              <pre className="p-4 pt-2 text-xs overflow-x-auto text-slate-600 dark:text-slate-300">
-                {snippet.code}
-              </pre>
+            {verify.status === "checking" ? "Checking…" : "Test this token"}
+          </button>
+          {verify.message && (
+            <p
+              className={`text-xs ${
+                verify.status === "done"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-rose-600 dark:text-rose-400"
+              }`}
+            >
+              {verify.message}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <p className="eyebrow mb-2">Drop it straight in</p>
+        <div className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto scrollbar-hide">
+            {snippets.map((snippet) => (
               <button
-                className="absolute top-1 right-2 text-xs text-primary-600 dark:text-primary-400"
-                onClick={() => copy(snippet.label, snippet.code)}
+                key={snippet.label}
+                onClick={() => setOpenSnippet(snippet.label)}
+                className={`px-3.5 py-2 text-xs font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                  openSnippet === snippet.label
+                    ? "border-primary-600 dark:border-primary-500 text-slate-900 dark:text-white"
+                    : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
               >
-                {copied === snippet.label ? "Copied!" : "Copy"}
+                {snippet.label}
               </button>
-            </div>
-          </details>
-        ))}
+            ))}
+          </div>
+          {snippets
+            .filter((snippet) => snippet.label === openSnippet)
+            .map((snippet) => (
+              <div key={snippet.label} className="relative">
+                <pre className="p-4 text-xs font-mono overflow-x-auto text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {snippet.code}
+                </pre>
+                <div className="absolute top-2 right-2">
+                  <CopyButton value={snippet.code} />
+                </div>
+              </div>
+            ))}
+        </div>
       </div>
     </div>
   );

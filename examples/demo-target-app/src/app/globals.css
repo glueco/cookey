@@ -7,52 +7,63 @@
    ============================================ */
 
 :root {
-  /* Colors */
-  --color-primary: 223 141 43; /* Caramel amber 500 */
-  --color-primary-dark: 209 116 32; /* Caramel amber 600 */
-  --color-success: 34 197 94; /* Green-500 */
+  /* Colors — mirrors the gateway's ink-on-paper palette
+     (apps/proxy/src/app/globals.css). The accent is warm near-black
+     ink; --on-primary is what sits on a solid accent fill, and both
+     invert together in dark mode so the primary button stays visible
+     on a dark canvas. */
+  --color-primary: 35 34 30; /* ink, #23221E */
+  --color-primary-dark: 28 27 24; /* hover */
+  --on-primary: 255 255 255;
+  --color-success: 16 185 129; /* Emerald-500 */
   --color-warning: 245 158 11; /* Amber-500 */
-  --color-error: 239 68 68; /* Red-500 */
+  --color-error: 244 63 94; /* Rose-500 */
 
-  /* Surfaces (warm neutrals) */
+  /* Surfaces (warm paper) */
   --surface-primary: 255 255 255;
-  --surface-secondary: 250 250 249;
-  --surface-tertiary: 244 244 242;
+  --surface-secondary: 250 249 245;
+  --surface-tertiary: 243 241 234;
 
   /* Text */
-  --text-primary: 28 27 25;
-  --text-secondary: 117 116 109;
-  --text-tertiary: 163 162 155;
+  --text-primary: 35 34 30;
+  --text-secondary: 118 114 103;
+  --text-tertiary: 163 160 147;
 
   /* Border */
-  --border-primary: 230 229 225;
-  --border-secondary: 212 211 205;
+  --border-primary: 230 227 217;
+  --border-secondary: 210 207 194;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  /* Shadows — warm black, so they read as light on paper */
+  --shadow-sm: 0 1px 2px 0 rgb(24 22 16 / 0.05);
+  --shadow-md:
+    0 2px 4px -1px rgb(24 22 16 / 0.06), 0 4px 12px -2px rgb(24 22 16 / 0.08);
   --shadow-lg:
-    0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    0 4px 8px -2px rgb(24 22 16 / 0.06), 0 12px 28px -4px rgb(24 22 16 / 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface-primary: 28 27 25;
-    --surface-secondary: 18 17 16;
-    --surface-tertiary: 43 42 39;
+    /* Ink inverts on dark: paper fill, ink label. */
+    --color-primary: 232 230 221; /* #E8E6DD */
+    --color-primary-dark: 245 244 238;
+    --on-primary: 22 21 18;
 
-    --text-primary: 250 250 249;
-    --text-secondary: 163 162 155;
-    --text-tertiary: 117 116 109;
+    --surface-primary: 33 32 28; /* #21201C */
+    --surface-secondary: 22 21 18; /* #161512 */
+    --surface-tertiary: 43 42 37;
 
-    --border-primary: 43 42 39;
-    --border-secondary: 68 67 61;
+    --text-primary: 232 230 221;
+    --text-secondary: 163 160 147;
+    --text-tertiary: 118 114 103;
 
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --border-primary: 43 42 37;
+    --border-secondary: 68 66 59;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
     --shadow-md:
-      0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+      0 2px 4px -1px rgb(0 0 0 / 0.4), 0 4px 12px -2px rgb(0 0 0 / 0.45);
     --shadow-lg:
-      0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+      0 4px 8px -2px rgb(0 0 0 / 0.45), 0 12px 28px -4px rgb(0 0 0 / 0.5);
   }
 }
 
@@ -91,8 +102,31 @@ body {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
+  /* Var-driven rather than ramp classes: the ink accent inverts to
+     paper in dark mode, and the label has to flip with it. The inset
+     top highlight is what separates a premium solid button from a
+     flat rectangle. */
   .btn-primary {
-    @apply btn bg-gradient-to-b from-primary-500 to-primary-600 text-white shadow-sm hover:from-primary-600 hover:to-primary-700 focus:ring-primary-500 active:from-primary-700 active:to-primary-700;
+    @apply btn focus:ring-primary-500;
+    background-color: rgb(var(--color-primary));
+    color: rgb(var(--on-primary));
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.14),
+      var(--shadow-sm);
+  }
+
+  .btn-primary:hover {
+    background-color: rgb(var(--color-primary-dark));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    /* A white inset line is invisible on a light fill — shade the
+       bottom edge instead so the button still reads as lit. */
+    .btn-primary {
+      box-shadow:
+        inset 0 -1px 0 0 rgb(0 0 0 / 0.14),
+        var(--shadow-sm);
+    }
   }
 
   .btn-secondary {
@@ -315,36 +349,3 @@ body {
   @apply bg-gray-400 dark:bg-gray-500;
 }
 
-/* ============================================
-   GRADIENT BACKGROUNDS
-   ============================================ */
-
-.gradient-bg {
-  background: linear-gradient(
-    135deg,
-    rgb(var(--surface-secondary)) 0%,
-    rgb(var(--surface-primary)) 50%,
-    rgb(var(--surface-secondary)) 100%
-  );
-}
-
-.gradient-border {
-  position: relative;
-}
-
-.gradient-border::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, #df8d2b, #e5a44e, #df8d2b);
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-}

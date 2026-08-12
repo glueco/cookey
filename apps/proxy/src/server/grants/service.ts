@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import type { Grant, GrantStatus } from "@prisma/client";
 import {
+  effectiveAuth,
   validateGrantDocument,
   type GrantDocument,
   type GrantDecisions,
@@ -27,6 +28,18 @@ export class GrantServiceError extends Error {
     super(message);
     this.name = "GrantServiceError";
   }
+}
+
+/**
+ * How long an approval link stays actionable. The sweep expires stale
+ * PENDING grants on its schedule; approveGrant() enforces the same
+ * cutoff at approval time, so the guarantee holds between runs too.
+ */
+export const PENDING_GRANT_MAX_AGE_DAYS = 7;
+
+function pendingGrantExpired(grant: Grant, now: Date): boolean {
+  const ageMs = now.getTime() - grant.createdAt.getTime();
+  return ageMs > PENDING_GRANT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 }
 
 /**
@@ -96,19 +109,69 @@ export async function approveGrant(
   if (grant.status !== "PENDING") {
     throw new GrantServiceError(`Grant is already ${grant.status}`, 409);
   }
+  if (pendingGrantExpired(grant, new Date())) {
+    await prisma.grant.update({
+      where: { id: grant.id },
+      data: { status: "EXPIRED" },
+    });
+    throw new GrantServiceError(
+      `This request is over ${PENDING_GRANT_MAX_AGE_DAYS} days old and has expired — ask the app to request access again`,
+      410,
+    );
+  }
 
   const document = grant.document as unknown as GrantDocument;
 
-  if (decisions.auth === "pop") {
+  // App-proposed access options are OPTIONAL and purely a narrowing:
+  // the thing being approved is `document.requests`, which the app
+  // wrote. Accepting an option drops the requests outside it; naming no
+  // option approves the document as written. Only a name that doesn't
+  // exist is an error — that means the client and the frozen document
+  // disagree, and silently approving everything would be the wrong way
+  // to resolve that.
+  if (decisions.optionId) {
+    const option = document.options?.find((o) => o.id === decisions.optionId);
+    if (!option) {
+      throw new GrantServiceError(
+        `Unknown access option "${decisions.optionId}" — the document defines: ${
+          document.options?.map((o) => o.id).join(", ") || "none"
+        }`,
+      );
+    }
+  }
+
+  // Owners tighten, never widen: every action named in the decisions
+  // must appear in the request it belongs to. Without this a crafted
+  // approval payload could mint a permission the app never asked for.
+  for (const [rawIndex, actions] of Object.entries(decisions.actions ?? {})) {
+    const index = Number(rawIndex);
+    const request = document.requests[index];
+    if (!request) {
+      throw new GrantServiceError(
+        `Action selection refers to request ${rawIndex}, which does not exist`,
+      );
+    }
+    const unknown = actions.filter((a) => !request.actions.includes(a));
+    if (unknown.length > 0) {
+      throw new GrantServiceError(
+        `Request ${rawIndex} was not asked for: ${unknown.join(", ")}`,
+      );
+    }
+  }
+
+  // Credential type is the APP's property, not an owner decision: PoP
+  // needs a public key to verify signatures against, and no approval
+  // preference can produce one. Derived here rather than read from
+  // `decisions.auth`, so a stale or hand-crafted payload can neither
+  // downgrade a signing app to a static token nor claim PoP without a
+  // key.
+  const auth = effectiveAuth(document);
+
+  if (auth === "pop") {
     const hasCredential = await prisma.appCredential.findFirst({
       where: { appId: grant.appId, status: "ACTIVE" },
       select: { id: true },
     });
-    if (!hasCredential && !document.publicKey) {
-      throw new GrantServiceError(
-        "PoP auth requires the grant document to carry a publicKey",
-      );
-    }
     if (!hasCredential && document.publicKey) {
       await prisma.appCredential.create({
         data: {
@@ -134,7 +197,8 @@ export async function approveGrant(
   });
   if (permissionData.length === 0) {
     throw new GrantServiceError(
-      "Approval produced no permissions — bind every wildcard request to at least one resource",
+      "Approval produced no permissions — keep at least one action enabled, " +
+        "and bind every “any provider” request to a configured provider",
     );
   }
 
@@ -156,8 +220,11 @@ export async function approveGrant(
       where: { id: grant.id, status: "PENDING" },
       data: {
         status: "ACTIVE",
-        decisions: decisions as unknown as Prisma.InputJsonValue,
-        authType: decisions.auth === "pop" ? "POP" : "BEARER",
+        // Freeze the DERIVED auth, not whatever the client sent — this
+        // record is what the grant detail page reads back as "what was
+        // agreed", so it must not preserve a value we ignored.
+        decisions: { ...decisions, auth } as unknown as Prisma.InputJsonValue,
+        authType: auth === "pop" ? "POP" : "BEARER",
         expiresAt,
         renewalPeriodDays,
         currentPeriodEnd,
@@ -182,16 +249,16 @@ export async function approveGrant(
   });
 
   const gatewayUrl = process.env.GATEWAY_URL || options.gatewayUrl || "";
+  const redirectTarget = safeRedirectUrl(document.redirectUri);
 
-  if (decisions.auth === "pop") {
+  if (auth === "pop") {
     // PoP apps hold their credential already — redirect back (when the
     // document asked for it) so the app can finish its connect flow.
-    if (document.redirectUri) {
-      const redirectUrl = new URL(document.redirectUri);
-      redirectUrl.searchParams.set("status", "approved");
-      redirectUrl.searchParams.set("app_id", updated.appId);
-      redirectUrl.searchParams.set("gateway", gatewayUrl);
-      return { grant: updated, redirectUrl: redirectUrl.toString() };
+    if (redirectTarget) {
+      redirectTarget.searchParams.set("status", "approved");
+      redirectTarget.searchParams.set("app_id", updated.appId);
+      redirectTarget.searchParams.set("gateway", gatewayUrl);
+      return { grant: updated, redirectUrl: redirectTarget.toString() };
     }
     return { grant: updated };
   }
@@ -202,15 +269,32 @@ export async function approveGrant(
     computeTokenExpiry(updated),
   );
 
-  if (document.redirectUri) {
+  if (redirectTarget) {
     const code = await createClaimCode(updated.id);
-    const redirectUrl = new URL(document.redirectUri);
-    redirectUrl.searchParams.set("code", code);
-    redirectUrl.searchParams.set("gateway", gatewayUrl);
-    return { grant: updated, redirectUrl: redirectUrl.toString() };
+    redirectTarget.searchParams.set("code", code);
+    redirectTarget.searchParams.set("gateway", gatewayUrl);
+    return { grant: updated, redirectUrl: redirectTarget.toString() };
   }
 
   return { grant: updated, token };
+}
+
+/**
+ * Parse a document's redirect target, accepting only http(s). Intake
+ * validation pins the scheme now, but the document is frozen verbatim
+ * on the Grant row — a grant created before that rule (or a
+ * hand-inserted row) must not become a javascript: navigation or a
+ * mid-approval crash. Unusable target → null, and the caller falls
+ * back to copy-paste token delivery instead of failing the approval.
+ */
+function safeRedirectUrl(uri: string | null | undefined): URL | null {
+  if (!uri) return null;
+  try {
+    const url = new URL(uri);
+    return url.protocol === "https:" || url.protocol === "http:" ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -226,19 +310,35 @@ function buildPermissionRows(
 ): Prisma.ResourcePermissionCreateManyInput[] {
   const rows: Prisma.ResourcePermissionCreateManyInput[] = [];
   const budget = decisions.budget ?? {};
+  const option = decisions.optionId
+    ? document.options?.find((o) => o.id === decisions.optionId)
+    : undefined;
 
   document.requests.forEach((request, index) => {
+    // When an access option was accepted, requests outside it are skipped
+    if (option && !option.requests.includes(index)) return;
+
+    // Owner-narrowed action set. Absent = everything the request asked
+    // for; empty = the owner dropped this request, so nothing is minted.
+    const chosen = decisions.actions?.[String(index)];
+    const actions = chosen ?? request.actions;
+    if (actions.length === 0) return;
+
     const isWildcard = request.resource.endsWith(":*");
+    const requestType = request.resource.split(":")[0];
     const resources = isWildcard
       ? (decisions.bindings?.[String(index)] ?? [])
       : [request.resource];
 
     for (const resourceId of resources) {
       if (resourceId.endsWith(":*")) continue; // bindings must be concrete
+      // A binding answers "which provider of the REQUESTED type" — it
+      // must not smuggle a different resource type past the request.
+      if (isWildcard && !resourceId.startsWith(`${requestType}:`)) continue;
       const overrides = decisions.constraints?.[resourceId] ?? {};
       const constraints = { ...request.constraints, ...overrides };
 
-      for (const action of request.actions) {
+      for (const action of actions) {
         rows.push({
           appId: grant.appId,
           grantId: grant.id,
@@ -253,6 +353,8 @@ function buildPermissionRows(
           monthlyQuota: budget.monthlyRequests ?? null,
           dailyTokenBudget: budget.dailyTokens ?? null,
           monthlyTokenBudget: budget.monthlyTokens ?? null,
+          dailyCostBudgetUsd: budget.dailyCostUsd ?? null,
+          monthlyCostBudgetUsd: budget.monthlyCostUsd ?? null,
         });
       }
     }

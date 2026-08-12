@@ -3,10 +3,21 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
+import {
+  ErrorState,
+  Field,
+  LoadingRows,
+  NumberField,
+  PageHeader,
+  Section,
+  Switch,
+  useConfirm,
+  useToast,
+} from "@/components/ui";
 
 // ============================================
-// SETTINGS — gateway name, marketplace URL, notification/digest config,
-// defaults, danger zone.
+// SETTINGS — gateway identity, marketplace source, digest, defaults,
+// and the maintenance actions that don't belong anywhere else.
 // ============================================
 
 interface SettingsResponse {
@@ -23,13 +34,17 @@ interface ConnectorOption {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const [confirm, confirmDialog] = useConfirm();
+
   const { data, error: loadError, refetch } = useQuery({
     queryKey: ["settings"],
     queryFn: () => api.get<SettingsResponse>("/api/admin/settings"),
   });
   const { data: connectorData } = useQuery({
     queryKey: ["connectors"],
-    queryFn: () => api.get<{ connectors: ConnectorOption[] }>("/api/admin/connectors"),
+    queryFn: () =>
+      api.get<{ connectors: ConnectorOption[] }>("/api/admin/connectors"),
   });
 
   const [form, setForm] = useState({
@@ -42,27 +57,37 @@ export default function SettingsPage() {
     digestMailFrom: "",
     autoSuspendOnAnomaly: false,
   });
-  const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  // What the server currently has, serialized — "Save" only lights up
+  // when the form has actually diverged from it.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data) return;
     const s = data.settings;
-    setForm({
+    const loaded = {
       gatewayName: (s.gatewayName as string) ?? "",
       marketplaceUrl: (s.marketplaceUrl as string) ?? "",
-      inactivitySuspendDaysDefault: String(s.inactivitySuspendDaysDefault ?? 14),
+      inactivitySuspendDaysDefault: String(
+        s.inactivitySuspendDaysDefault ?? 14,
+      ),
       digestEnabled: (s.digestEnabled as boolean) ?? false,
       digestMailConnector: (s.digestMailConnector as string) ?? "",
       digestMailTo: (s.digestMailTo as string) ?? "",
       digestMailFrom: (s.digestMailFrom as string) ?? "",
       autoSuspendOnAnomaly: (s.autoSuspendOnAnomaly as boolean) ?? false,
-    });
+    };
+    setForm(loaded);
+    setSavedSnapshot(JSON.stringify(loaded));
   }, [data]);
 
+  const dirty =
+    savedSnapshot !== null && JSON.stringify(form) !== savedSnapshot;
+
   const save = async () => {
-    // The form is only rendered once `data` has loaded (see below), so a
-    // save can never clobber stored values with blank initial state.
-    setMessage(null);
+    // The form only renders once `data` has loaded (see below), so a save
+    // can never clobber stored values with blank initial state.
+    setSaving(true);
     try {
       await api.patch("/api/admin/settings", {
         settings: {
@@ -81,34 +106,53 @@ export default function SettingsPage() {
         },
       });
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      setMessage("Saved.");
+      setSavedSnapshot(JSON.stringify(form));
+      toast.success("Settings saved");
     } catch (err) {
-      setMessage(
-        `Save failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      toast.error(
+        "Save failed",
+        err instanceof Error ? err.message : undefined,
       );
+    } finally {
+      setSaving(false);
     }
   };
 
   const restoreBuiltins = async () => {
-    if (!confirm("Restore the shipped built-in connector documents? Admin modifications to them are overwritten.")) return;
+    const ok = await confirm({
+      title: "Restore built-in connectors?",
+      body: "The shipped documents overwrite the built-ins currently installed. Any edits you made to them are lost.",
+      confirmLabel: "Restore",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await api.post("/api/admin/connectors", { restoreBuiltins: true });
       queryClient.invalidateQueries({ queryKey: ["connectors"] });
-      setMessage("Built-in connectors restored.");
+      toast.success("Built-in connectors restored");
     } catch (err) {
-      setMessage(
-        `Restore failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      toast.error(
+        "Restore failed",
+        err instanceof Error ? err.message : undefined,
       );
     }
   };
 
   const runSweep = async () => {
     try {
-      const result = await api.post<{ results: Record<string, number> }>("/api/admin/sweep", {});
-      setMessage(`Sweep done: ${JSON.stringify(result.results)}`);
+      const result = await api.post<{ results: Record<string, number> }>(
+        "/api/admin/sweep",
+        {},
+      );
+      const summary = Object.entries(result.results)
+        .filter(([, count]) => count > 0)
+        .map(([key, count]) => `${count} ${key}`)
+        .join(", ");
+      toast.success("Housekeeping sweep finished", summary || "Nothing to do.");
     } catch (err) {
-      setMessage(
-        `Sweep failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      toast.error(
+        "Sweep failed",
+        err instanceof Error ? err.message : undefined,
       );
     }
   };
@@ -120,143 +164,207 @@ export default function SettingsPage() {
 
   if (loadError) {
     return (
-      <main className="p-8 space-y-3">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Settings</h1>
-        <p className="text-sm text-red-600 dark:text-red-400">
-          Couldn’t load settings: {loadError instanceof Error ? loadError.message : "unknown error"}
-        </p>
-        <button className="btn-secondary text-sm" onClick={() => refetch()}>
-          Retry
-        </button>
+      <main className="p-8 space-y-5 max-w-2xl">
+        <PageHeader title="Settings" />
+        <ErrorState
+          message={`Couldn't load settings: ${
+            loadError instanceof Error ? loadError.message : "unknown error"
+          }`}
+          onRetry={() => refetch()}
+        />
       </main>
     );
   }
 
   if (!data) {
-    return <main className="p-6 text-slate-500">Loading…</main>;
+    return (
+      <main className="p-8 space-y-5 max-w-2xl">
+        <PageHeader title="Settings" />
+        <div className="card p-5">
+          <LoadingRows rows={3} />
+        </div>
+      </main>
+    );
   }
 
   return (
-    <main className="p-8 space-y-6 max-w-2xl">
-      <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Settings</h1>
+    <main className="p-8 space-y-5 max-w-2xl">
+      <PageHeader
+        title="Settings"
+        description="How this gateway identifies itself, where it looks for connectors, and the defaults it applies to new grants."
+      />
 
-      {message && (
-        <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200">
-          {message}
-        </div>
-      )}
-
-      <section className="card p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Gateway</h2>
-        <label className="block text-sm">
-          Gateway name
-          <input
-            className="input w-full mt-1 text-sm"
-            placeholder="Cookey Gateway"
-            value={form.gatewayName}
-            onChange={(e) => setForm((f) => ({ ...f, gatewayName: e.target.value }))}
-          />
-        </label>
-        <label className="block text-sm">
-          Marketplace registry URL
-          <input
-            className="input w-full mt-1 text-sm font-mono"
-            placeholder={data?.defaults.marketplaceUrl}
-            value={form.marketplaceUrl}
-            onChange={(e) => setForm((f) => ({ ...f, marketplaceUrl: e.target.value }))}
-          />
-        </label>
-        <label className="block text-sm">
-          Default inactivity suspend (days, 0 = off)
-          <input
-            type="number"
-            min={0}
-            className="input w-24 mt-1 text-sm"
-            value={form.inactivitySuspendDaysDefault}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, inactivitySuspendDaysDefault: e.target.value }))
-            }
-          />
-        </label>
-        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-          <input
-            type="checkbox"
-            checked={form.autoSuspendOnAnomaly}
-            onChange={(e) => setForm((f) => ({ ...f, autoSuspendOnAnomaly: e.target.checked }))}
-          />
-          Auto-suspend grants on anomalous traffic (default off)
-        </label>
-      </section>
-
-      <section className="card p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-          Weekly digest
-        </h2>
-        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-          <input
-            type="checkbox"
-            checked={form.digestEnabled}
-            onChange={(e) => setForm((f) => ({ ...f, digestEnabled: e.target.checked }))}
-          />
-          Send a weekly usage digest (always appears in notifications; email
-          when a mail connector is configured below)
-        </label>
-        <label className="block text-sm">
-          Mail connector
-          <select
-            className="input w-full mt-1 text-sm"
-            value={form.digestMailConnector}
-            onChange={(e) => setForm((f) => ({ ...f, digestMailConnector: e.target.value }))}
+      <Section title="Gateway">
+        <div className="space-y-4">
+          <Field
+            label="Gateway name"
+            hint="Shown in the sidebar and on the sign-in screen."
           >
-            <option value="">— in-app notification only —</option>
-            {mailConnectors.map((c) => (
-              <option key={c.connectorId} value={c.connectorId}>
-                {c.document.name} ({c.connectorId})
-              </option>
-            ))}
-          </select>
-        </label>
-        {form.digestMailConnector && (
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm">
-              From address
-              <input
-                className="input w-full mt-1 text-sm"
-                placeholder="gateway@yourdomain.com"
-                value={form.digestMailFrom}
-                onChange={(e) => setForm((f) => ({ ...f, digestMailFrom: e.target.value }))}
+            <input
+              className="input"
+              placeholder="Cookey Gateway"
+              value={form.gatewayName}
+              onChange={(event) =>
+                setForm((f) => ({ ...f, gatewayName: event.target.value }))
+              }
+            />
+          </Field>
+
+          <Field
+            label="Marketplace registry URL"
+            hint="Where connector listings are fetched from. Leave blank for the default registry."
+          >
+            <input
+              className="input font-mono"
+              placeholder={data.defaults.marketplaceUrl}
+              value={form.marketplaceUrl}
+              onChange={(event) =>
+                setForm((f) => ({ ...f, marketplaceUrl: event.target.value }))
+              }
+            />
+          </Field>
+
+          <Field
+            label="Default idle-suspend window"
+            hint="Prefilled on the approval screen. A grant that goes unused this long is suspended automatically. 0 turns it off."
+          >
+            <div className="w-28">
+              <NumberField
+                value={form.inactivitySuspendDaysDefault}
+                min={0}
+                suffix="days"
+                onChange={(value) =>
+                  setForm((f) => ({
+                    ...f,
+                    inactivitySuspendDaysDefault: value,
+                  }))
+                }
               />
-            </label>
-            <label className="block text-sm">
-              To address
-              <input
-                className="input w-full mt-1 text-sm"
-                placeholder="you@yourdomain.com"
-                value={form.digestMailTo}
-                onChange={(e) => setForm((f) => ({ ...f, digestMailTo: e.target.value }))}
-              />
-            </label>
-          </div>
+            </div>
+          </Field>
+
+          <Switch
+            checked={form.autoSuspendOnAnomaly}
+            onChange={(checked) =>
+              setForm((f) => ({ ...f, autoSuspendOnAnomaly: checked }))
+            }
+            label="Auto-suspend grants on anomalous traffic"
+            description="Off by default — it can interrupt a legitimate burst."
+          />
+        </div>
+      </Section>
+
+      <Section
+        title="Weekly digest"
+        description="A summary of spend, traffic and anything that needs attention."
+      >
+        <div className="space-y-4">
+          <Switch
+            checked={form.digestEnabled}
+            onChange={(checked) =>
+              setForm((f) => ({ ...f, digestEnabled: checked }))
+            }
+            label="Send a weekly usage digest"
+            description="Always appears in notifications; also emailed when a mail connector is set below."
+          />
+
+          {form.digestEnabled && (
+            <>
+              <Field
+                label="Mail connector"
+                hint={
+                  mailConnectors.length === 0
+                    ? "No mail connector has credentials yet — the digest will stay in-app only."
+                    : undefined
+                }
+              >
+                <select
+                  className="input"
+                  value={form.digestMailConnector}
+                  onChange={(event) =>
+                    setForm((f) => ({
+                      ...f,
+                      digestMailConnector: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">— in-app notification only —</option>
+                  {mailConnectors.map((connector) => (
+                    <option
+                      key={connector.connectorId}
+                      value={connector.connectorId}
+                    >
+                      {connector.document.name} ({connector.connectorId})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              {form.digestMailConnector && (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <Field label="From address">
+                    <input
+                      className="input"
+                      placeholder="gateway@yourdomain.com"
+                      value={form.digestMailFrom}
+                      onChange={(event) =>
+                        setForm((f) => ({
+                          ...f,
+                          digestMailFrom: event.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="To address">
+                    <input
+                      className="input"
+                      placeholder="you@yourdomain.com"
+                      value={form.digestMailTo}
+                      onChange={(event) =>
+                        setForm((f) => ({
+                          ...f,
+                          digestMailTo: event.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Section>
+
+      <div className="flex items-center justify-end gap-3">
+        {dirty && !saving && (
+          <span className="text-xs text-amber-600 dark:text-amber-400">
+            Unsaved changes
+          </span>
         )}
-      </section>
+        <button
+          className="btn-primary"
+          disabled={saving || !dirty}
+          onClick={save}
+        >
+          {saving ? "Saving…" : "Save settings"}
+        </button>
+      </div>
 
-      <button className="btn-primary" onClick={save}>
-        Save settings
-      </button>
-
-      <section className="card p-4 space-y-3 border-red-200 dark:border-red-900">
-        <h2 className="text-sm font-semibold text-red-700 dark:text-red-300">
-          Danger zone
-        </h2>
+      <Section
+        title="Maintenance"
+        description="Occasionally useful, rarely urgent."
+      >
         <div className="flex flex-wrap gap-2">
-          <button className="btn-secondary text-sm" onClick={runSweep}>
-            Run housekeeping sweep now
+          <button className="btn-secondary btn-sm" onClick={runSweep}>
+            Run housekeeping sweep
           </button>
-          <button className="btn-secondary text-sm" onClick={restoreBuiltins}>
+          <button className="btn-secondary btn-sm" onClick={restoreBuiltins}>
             Restore built-in connectors
           </button>
         </div>
-      </section>
+      </Section>
+
+      {confirmDialog}
     </main>
   );
 }

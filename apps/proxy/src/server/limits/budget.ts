@@ -58,7 +58,7 @@ async function incrementUsage(
   permissionId: string,
   periodType: UsagePeriodType,
   periodStart: Date,
-  data: { requests?: number; tokens?: number },
+  data: { requests?: number; tokens?: number; costUsd?: number },
   retried = false,
 ): Promise<{ requestCount: number; tokenCount: number }> {
   try {
@@ -76,10 +76,12 @@ async function incrementUsage(
         periodStart,
         requestCount: data.requests ?? 0,
         tokenCount: data.tokens ?? 0,
+        costUsd: data.costUsd ?? 0,
       },
       update: {
         ...(data.requests && { requestCount: { increment: data.requests } }),
         ...(data.tokens && { tokenCount: { increment: data.tokens } }),
+        ...(data.costUsd && { costUsd: { increment: data.costUsd } }),
       },
       select: { requestCount: true, tokenCount: true },
     });
@@ -102,14 +104,15 @@ async function grantPeriodUsage(
   grantId: string,
   periodType: UsagePeriodType,
   periodStart: Date,
-): Promise<{ requests: number; tokens: number }> {
+): Promise<{ requests: number; tokens: number; costUsd: number }> {
   const totals = await prisma.permissionUsage.aggregate({
     where: { permission: { grantId }, periodType, periodStart },
-    _sum: { requestCount: true, tokenCount: true },
+    _sum: { requestCount: true, tokenCount: true, costUsd: true },
   });
   return {
     requests: totals._sum.requestCount ?? 0,
     tokens: totals._sum.tokenCount ?? 0,
+    costUsd: totals._sum.costUsd ?? 0,
   };
 }
 
@@ -228,19 +231,87 @@ export async function checkTokenBudget(
 }
 
 /**
- * Record token usage after a successful upstream call (daily + monthly).
+ * Check spend budgets without incrementing — same shape as the token
+ * check: cost is only known after the upstream call, so admission
+ * denies once the accumulated estimate has reached the cap.
+ */
+export async function checkCostBudget(
+  grantId: string,
+  budgets: {
+    dailyCostBudgetUsd?: number | null;
+    monthlyCostBudgetUsd?: number | null;
+  },
+): Promise<BudgetResult & { period: UsagePeriodType }> {
+  const now = new Date();
+
+  if (!budgets.dailyCostBudgetUsd && !budgets.monthlyCostBudgetUsd) {
+    return {
+      allowed: true,
+      used: 0,
+      limit: 0,
+      periodEnd: periodEndUnix("DAILY", now),
+      period: "DAILY",
+    };
+  }
+
+  const [daily, monthly] = await Promise.all([
+    grantPeriodUsage(grantId, "DAILY", dailyPeriodStart(now)),
+    grantPeriodUsage(grantId, "MONTHLY", monthlyPeriodStart(now)),
+  ]);
+
+  if (
+    budgets.dailyCostBudgetUsd &&
+    daily.costUsd >= budgets.dailyCostBudgetUsd
+  ) {
+    return {
+      allowed: false,
+      used: daily.costUsd,
+      limit: budgets.dailyCostBudgetUsd,
+      periodEnd: periodEndUnix("DAILY", now),
+      period: "DAILY",
+    };
+  }
+
+  if (
+    budgets.monthlyCostBudgetUsd &&
+    monthly.costUsd >= budgets.monthlyCostBudgetUsd
+  ) {
+    return {
+      allowed: false,
+      used: monthly.costUsd,
+      limit: budgets.monthlyCostBudgetUsd,
+      periodEnd: periodEndUnix("MONTHLY", now),
+      period: "MONTHLY",
+    };
+  }
+
+  return {
+    allowed: true,
+    used: daily.costUsd,
+    limit: budgets.dailyCostBudgetUsd ?? 0,
+    periodEnd: periodEndUnix("DAILY", now),
+    period: "DAILY",
+  };
+}
+
+/**
+ * Record token + estimated cost usage after a successful upstream call
+ * (daily + monthly).
  */
 export async function recordTokenUsage(
   permissionId: string,
   tokens: number,
+  costUsd = 0,
 ): Promise<void> {
-  if (tokens <= 0) return;
+  if (tokens <= 0 && costUsd <= 0) return;
   const now = new Date();
+  const data = {
+    ...(tokens > 0 && { tokens }),
+    ...(costUsd > 0 && { costUsd }),
+  };
   await Promise.all([
-    incrementUsage(permissionId, "DAILY", dailyPeriodStart(now), { tokens }),
-    incrementUsage(permissionId, "MONTHLY", monthlyPeriodStart(now), {
-      tokens,
-    }),
+    incrementUsage(permissionId, "DAILY", dailyPeriodStart(now), data),
+    incrementUsage(permissionId, "MONTHLY", monthlyPeriodStart(now), data),
   ]);
 }
 
@@ -253,6 +324,8 @@ export async function getUsageSnapshot(permissionId: string): Promise<{
   monthlyRequests: number;
   dailyTokens: number;
   monthlyTokens: number;
+  dailyCostUsd: number;
+  monthlyCostUsd: number;
 }> {
   const now = new Date();
   const usage = await prisma.permissionUsage.findMany({
@@ -263,7 +336,12 @@ export async function getUsageSnapshot(permissionId: string): Promise<{
         { periodType: "MONTHLY", periodStart: monthlyPeriodStart(now) },
       ],
     },
-    select: { periodType: true, requestCount: true, tokenCount: true },
+    select: {
+      periodType: true,
+      requestCount: true,
+      tokenCount: true,
+      costUsd: true,
+    },
   });
 
   const daily = usage.find((u) => u.periodType === "DAILY");
@@ -274,6 +352,8 @@ export async function getUsageSnapshot(permissionId: string): Promise<{
     monthlyRequests: monthly?.requestCount ?? 0,
     dailyTokens: daily?.tokenCount ?? 0,
     monthlyTokens: monthly?.tokenCount ?? 0,
+    dailyCostUsd: daily?.costUsd ?? 0,
+    monthlyCostUsd: monthly?.costUsd ?? 0,
   };
 }
 
@@ -286,6 +366,8 @@ export async function getGrantUsageSnapshot(grantId: string): Promise<{
   monthlyRequests: number;
   dailyTokens: number;
   monthlyTokens: number;
+  dailyCostUsd: number;
+  monthlyCostUsd: number;
 }> {
   const now = new Date();
   const [daily, monthly] = await Promise.all([
@@ -297,5 +379,7 @@ export async function getGrantUsageSnapshot(grantId: string): Promise<{
     monthlyRequests: monthly.requests,
     dailyTokens: daily.tokens,
     monthlyTokens: monthly.tokens,
+    dailyCostUsd: daily.costUsd,
+    monthlyCostUsd: monthly.costUsd,
   };
 }

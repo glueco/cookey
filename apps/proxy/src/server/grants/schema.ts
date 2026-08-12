@@ -63,6 +63,28 @@ const ResourceRefSchema = z
       "Invalid resource. Use \"<type>:<provider>\" (llm:groq) or the wildcard form \"<type>:*\"",
   });
 
+/**
+ * App-supplied URLs are rendered as links (homepage), fetched (iconUrl)
+ * or NAVIGATED TO after approval (redirectUri) — so the scheme must be
+ * pinned to http(s). Plain z.string().url() accepts javascript: and
+ * data:, which turns `window.location.href = redirectUri` into XSS on
+ * the approval screen.
+ */
+const HttpUrlSchema = z
+  .string()
+  .url()
+  .refine(
+    (value) => {
+      try {
+        const { protocol } = new URL(value);
+        return protocol === "https:" || protocol === "http:";
+      } catch {
+        return false;
+      }
+    },
+    { message: "Only http(s) URLs are allowed" },
+  );
+
 export const GrantRequestSchema = z.object({
   resource: ResourceRefSchema,
   actions: z.array(z.string().min(1)).min(1),
@@ -78,6 +100,32 @@ export const GrantBudgetSchema = z.object({
   monthlyRequests: z.number().int().positive().optional(),
   dailyTokens: z.number().int().positive().optional(),
   monthlyTokens: z.number().int().positive().optional(),
+  /** Spend ceilings in USD, enforced from connector pricing estimates */
+  dailyCostUsd: z.number().positive().optional(),
+  monthlyCostUsd: z.number().positive().optional(),
+});
+
+/**
+ * An access option: a named bundle of the document's requests the app
+ * proposes as one choice (Google-consent style — "Basic" vs "Full").
+ * `requests` holds indexes into the top-level requests array; budget and
+ * duration, when present, override the document-level values for that
+ * option.
+ *
+ * OPTIONAL, and only ever a narrowing. `requests[]` is already the
+ * app's own statement of what it needs, so that is what the owner is
+ * asked to approve; options exist for apps that genuinely have tiers
+ * ("read-only" vs "full"), and picking one simply drops the requests
+ * outside it. An app with a single shape ships no options at all.
+ */
+export const GrantOptionSchema = z.object({
+  id: z.string().min(1).max(40),
+  name: z.string().min(1).max(60),
+  description: z.string().max(300).optional(),
+  recommended: z.boolean().optional(),
+  requests: z.array(z.number().int().nonnegative()).min(1),
+  budget: GrantBudgetSchema.optional(),
+  duration: DurationStringSchema.optional(),
 });
 
 export const GrantDocumentSchema = z
@@ -86,17 +134,18 @@ export const GrantDocumentSchema = z
     app: z.object({
       name: z.string().min(1).max(100),
       description: z.string().max(500).optional(),
-      homepage: z.string().url().optional(),
-      iconUrl: z.string().url().optional(),
+      homepage: HttpUrlSchema.optional(),
+      iconUrl: HttpUrlSchema.optional(),
     }),
     runtime: z.enum(["server", "serverless", "cli", "browser"]),
     auth: z.enum(["bearer", "pop"]),
     publicKey: z.string().min(40).nullable().optional(),
     requests: z.array(GrantRequestSchema).min(1),
+    options: z.array(GrantOptionSchema).min(1).max(5).optional(),
     duration: DurationStringSchema,
     renewal: z.object({ period: DurationStringSchema }).optional(),
     budget: GrantBudgetSchema.optional(),
-    redirectUri: z.string().url().optional(),
+    redirectUri: HttpUrlSchema.optional(),
   })
   .superRefine((doc, ctx) => {
     const major = doc.specVersion.split(".")[0];
@@ -121,10 +170,49 @@ export const GrantDocumentSchema = z
         message: "Renewal period cannot be \"forever\"",
       });
     }
+    {
+      const seen = new Set<string>();
+      (doc.options ?? []).forEach((option, i) => {
+        if (seen.has(option.id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["options", i, "id"],
+            message: `Duplicate option id "${option.id}"`,
+          });
+        }
+        seen.add(option.id);
+        for (const index of option.requests) {
+          if (index >= doc.requests.length) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["options", i, "requests"],
+              message: `Option "${option.id}" references request index ${index}, but the document only has ${doc.requests.length} request(s)`,
+            });
+          }
+        }
+      });
+    }
   });
 
 export type GrantDocument = z.infer<typeof GrantDocumentSchema>;
 export type GrantRequest = z.infer<typeof GrantRequestSchema>;
+export type GrantOption = z.infer<typeof GrantOptionSchema>;
+
+/**
+ * The credential type a grant will actually use.
+ *
+ * This is the app's property, not the owner's preference: signing keys
+ * (PoP) work only if the app both asked for them AND shipped a public
+ * key to verify its signatures against. Everything else is a static
+ * bearer token. The approval screen states the outcome; it doesn't
+ * offer a choice, because there isn't one to make.
+ */
+export function effectiveAuth(document: {
+  auth?: string | null;
+  publicKey?: string | null;
+}): "bearer" | "pop" {
+  return document.auth === "pop" && !!document.publicKey ? "pop" : "bearer";
+}
 
 /**
  * Validate a raw value as a grant document, enforcing the size cap first.
@@ -166,9 +254,33 @@ export function validateGrantDocument(
 // ============================================
 
 export const GrantDecisionsSchema = z.object({
+  /**
+   * The app-proposed access option the owner accepted, when the app
+   * offered any. Absent = approve the document's requests as written,
+   * which is the normal case.
+   */
+  optionId: z.string().max(40).optional(),
   /** Wildcard bindings: request index → concrete resource ids */
   bindings: z.record(z.array(ResourceRefSchema)).optional(),
-  auth: z.enum(["bearer", "pop"]),
+  /**
+   * Per-request action allowlist: request index → the subset of that
+   * request's `actions` the owner granted. An omitted index grants every
+   * action the request asked for; an EMPTY array drops the request
+   * entirely. Owners tighten, never widen — approveGrant() rejects any
+   * action the request did not ask for.
+   */
+  actions: z.record(z.array(z.string().min(1))).optional(),
+  /**
+   * NOT an owner decision. Which credential an app can hold is a
+   * property of the app: signing keys require it to have shipped a
+   * public key and to sign every request, and no owner preference can
+   * conjure that. The server derives the effective auth from the
+   * document (see effectiveAuth()); this field is accepted only so
+   * older clients keep parsing, and is ignored when it disagrees.
+   *
+   * @deprecated derived from the grant document
+   */
+  auth: z.enum(["bearer", "pop"]).optional(),
   /** null = forever */
   durationMs: z.number().int().positive().nullable(),
   renewal: z
@@ -176,7 +288,12 @@ export const GrantDecisionsSchema = z.object({
     .nullable()
     .optional(),
   budget: GrantBudgetSchema.optional(),
-  /** Per-resource constraint overrides applied over request constraints */
+  /**
+   * Per-resource constraint overrides applied OVER the request's own
+   * constraints (keyed by concrete resource id, e.g. "llm:groq"). The
+   * approval route sanitizes these against what the bound connector can
+   * actually enforce before they reach here.
+   */
   constraints: z.record(z.record(z.unknown())).optional(),
   egressIps: z.string().optional(),
   allowBrowser: z.boolean().optional(),

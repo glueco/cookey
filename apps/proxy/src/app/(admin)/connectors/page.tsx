@@ -5,11 +5,23 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { TrustBadge, type TrustLevel } from "@/components/connectors/ConnectorReview";
+import { ResourceTypeIcon } from "@/components/grant/approval-parts";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingRows,
+  PageHeader,
+  useConfirm,
+  useToast,
+  useSlashFocus,
+} from "@/components/ui";
 
 // ============================================
 // CONNECTORS LIST
-// Cards: name, version, source badge, enabled toggle, credential
-// status, update-available pill.
+// Cards: name, version, trust badge, enabled toggle, credential status,
+// update-available pill. Connectors without credentials are called out
+// loudly — an enabled connector with no key is the single most common
+// reason a grant looks fine but every request fails.
 // ============================================
 
 interface ConnectorRow {
@@ -33,152 +45,224 @@ const TRUST: Record<ConnectorRow["source"], TrustLevel> = {
 
 export default function ConnectorsPage() {
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const toast = useToast();
+  const [confirm, confirmDialog] = useConfirm();
 
-  const {
-    data,
-    isLoading: loading,
-    error: loadError,
-    refetch,
-  } = useQuery({
+  const [search, setSearch] = useState("");
+  const searchRef = useSlashFocus<HTMLInputElement>();
+
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["connectors"],
     queryFn: () =>
       api.get<{ connectors: ConnectorRow[] }>("/api/admin/connectors"),
   });
   const connectors = data?.connectors ?? [];
+  const missingCredentials = connectors.filter(
+    (row) => row.enabled && !row.credentialsConfigured,
+  );
+
+  const needle = search.trim().toLowerCase();
+  const visible = needle
+    ? connectors.filter((row) =>
+        [row.document.name, row.connectorId, row.document.description ?? ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(needle),
+      )
+    : connectors;
 
   const toggle = async (row: ConnectorRow) => {
-    setError(null);
-    setMessage(null);
     try {
       await api.patch(
         `/api/admin/connectors/${encodeURIComponent(row.connectorId)}`,
         { enabled: !row.enabled },
       );
       queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      toast.success(
+        `${row.document.name} ${row.enabled ? "disabled" : "enabled"}`,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update connector");
+      toast.error(
+        "Couldn't update the connector",
+        err instanceof Error ? err.message : undefined,
+      );
     }
   };
 
   const restoreBuiltins = async () => {
-    setError(null);
-    setMessage(null);
+    const ok = await confirm({
+      title: "Restore built-in connectors?",
+      body: "The shipped documents overwrite the built-ins currently installed. Any edits you made to them are lost; connectors you installed yourself are untouched.",
+      confirmLabel: "Restore",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await api.post("/api/admin/connectors", { restoreBuiltins: true });
-      setMessage("Built-in connectors restored.");
       queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      toast.success("Built-in connectors restored");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to restore built-ins");
+      toast.error(
+        "Restore failed",
+        err instanceof Error ? err.message : undefined,
+      );
     }
   };
 
   return (
-    <main className="min-h-screen max-w-4xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Connectors
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Provider integrations — declarative documents, frozen at install.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/marketplace" className="btn-primary text-sm">
-            Marketplace
-          </Link>
-          <Link href="/connectors/install" className="btn-secondary text-sm">
-            Install from URL
-          </Link>
-          <Link href="/connectors/new" className="btn-secondary text-sm">
-            Build custom
-          </Link>
-        </div>
-      </div>
+    <main className="p-8 space-y-5 max-w-4xl">
+      <PageHeader
+        title="Connectors"
+        description="Provider integrations — declarative documents, frozen at install. Each one names the API it talks to and exactly what the gateway may enforce on it."
+        actions={
+          <>
+            <Link href="/marketplace" className="btn-primary">
+              Browse marketplace
+            </Link>
+            <Link href="/connectors/install" className="btn-secondary">
+              Install from URL
+            </Link>
+          </>
+        }
+      />
 
-      {error && (
-        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
-          {error}
-        </div>
-      )}
-      {message && (
-        <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200">
-          {message}
-        </div>
+      {missingCredentials.length > 0 && (
+        <p className="callout-warning">
+          {missingCredentials.length} enabled connector
+          {missingCredentials.length > 1 ? "s have" : " has"} no credentials
+          stored — requests routed to{" "}
+          {missingCredentials.map((row) => row.connectorId).join(", ")} will
+          fail until you add a key.
+        </p>
       )}
 
-      {loading ? (
-        <p className="text-slate-500">Loading…</p>
-      ) : loadError ? (
-        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300 space-y-2">
-          <p>Failed to load connectors: {loadError.message}</p>
-          <button className="btn-secondary text-xs" onClick={() => refetch()}>
-            Retry
-          </button>
+      {isLoading ? (
+        <div className="card p-5">
+          <LoadingRows rows={4} />
         </div>
+      ) : error ? (
+        <ErrorState
+          message={`Failed to load connectors: ${error.message}`}
+          onRetry={() => refetch()}
+        />
+      ) : connectors.length > 0 ? (
+        <div className="flex justify-end">
+          <div className="relative max-w-[14rem] w-full">
+            <input
+              ref={searchRef}
+              className="input pr-8"
+              placeholder="Search connectors…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            {!search && (
+              <kbd className="kbd absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                /
+              </kbd>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {isLoading || error ? null : connectors.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.4}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+            </svg>
+          }
+          title="No connectors installed"
+          description="Install one from the marketplace, or wrap any REST API yourself — connectors are plain JSON, no code required."
+          action={
+            <Link href="/marketplace" className="btn-primary">
+              Browse marketplace
+            </Link>
+          }
+        />
+      ) : visible.length === 0 ? (
+        <p className="field-hint text-center py-8">
+          No connectors matching &ldquo;{search}&rdquo;.
+        </p>
       ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {connectors.map((row) => (
-            <Link
+        <div className="grid sm:grid-cols-2 gap-3 stagger">
+          {visible.map((row, index) => (
+            <div
               key={row.id}
-              href={`/connectors/${encodeURIComponent(row.connectorId)}`}
-              className="card p-4 block hover:shadow-md transition-shadow"
+              className="card card-hover p-4 flex flex-col gap-3"
+              style={{ "--i": index } as React.CSSProperties}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">
+              <div className="flex items-start gap-3">
+                <span className="w-9 h-9 shrink-0 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center">
+                  <ResourceTypeIcon
+                    resourceType={row.resourceType}
+                    className="w-[18px] h-[18px]"
+                  />
+                </span>
+                <Link
+                  href={`/connectors/${encodeURIComponent(row.connectorId)}`}
+                  className="min-w-0 flex-1 group"
+                >
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:underline">
                     {row.document.name}
                   </p>
-                  <p className="text-xs font-mono text-slate-500">
+                  <p className="text-[11px] font-mono text-slate-400 truncate">
                     {row.connectorId} · v{row.version}
                   </p>
-                </div>
+                </Link>
                 <TrustBadge trust={TRUST[row.source]} />
               </div>
-              <div className="mt-3 flex items-center gap-2 flex-wrap text-xs">
+
+              {row.document.description && (
+                <p className="field-hint truncate-2">
+                  {row.document.description}
+                </p>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap mt-auto pt-1">
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    toggle(row);
-                  }}
-                  className={`px-2 py-0.5 rounded-full font-medium ${
-                    row.enabled
-                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                      : "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400"
-                  }`}
+                  onClick={() => toggle(row)}
+                  className={row.enabled ? "badge-success" : "badge-neutral"}
                 >
                   {row.enabled ? "Enabled" : "Disabled"}
                 </button>
                 <span
                   className={
                     row.credentialsConfigured
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-amber-600 dark:text-amber-400"
+                      ? "badge-neutral"
+                      : "badge-warning"
                   }
                 >
                   {row.credentialsConfigured
-                    ? "● credentials set"
-                    : "○ no credentials"}
+                    ? "credentials set"
+                    : "no credentials"}
                 </span>
                 {row.updateAvailable && (
-                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                  <Link
+                    href={`/connectors/${encodeURIComponent(row.connectorId)}`}
+                    className="badge-info"
+                  >
                     v{row.updateAvailable.version} available
-                  </span>
+                  </Link>
                 )}
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
 
-      <button
-        onClick={restoreBuiltins}
-        className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline"
-      >
-        Restore built-in connectors
-      </button>
+      <div className="flex items-center gap-3 pt-2">
+        <Link href="/connectors/new" className="btn-secondary btn-sm">
+          Build a custom connector
+        </Link>
+        <button
+          onClick={restoreBuiltins}
+          className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline underline-offset-2"
+        >
+          Restore built-in connectors
+        </button>
+      </div>
+
+      {confirmDialog}
     </main>
   );
 }

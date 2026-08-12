@@ -5,17 +5,27 @@ import { Prisma } from "@prisma/client";
 import { checkAdminAuth } from "@/lib/admin-auth";
 
 // ============================================
-// /api/admin/templates — GrantTemplate CRUD (5.6)
-// values holds any subset of approval-screen decisions; applying a
-// template overwrites the form, fields stay editable after.
+// /api/admin/templates — GrantTemplate CRUD
+//
+// `values` is a permissions package: `services[]` (what it hands over)
+// plus the duration/budget/hardening that go with it. See
+// src/lib/templates.ts for the shape and the intersection rule.
+//
+// Stored free-form: a template written against a connector that is
+// later removed must still load, so the read path normalises rather
+// than validates. Older rows may carry an `auth` key from when the
+// owner chose the credential type — that's derived from the app's own
+// document now, and normalizeTemplateValues() drops it on read.
 // ============================================
 
+// Seeded only into an empty gateway, and deliberately package-free:
+// which services exist is a property of THIS install, and a starter
+// that named connectors the owner doesn't have would hand out nothing.
 const STARTER_TEMPLATES = [
   {
     name: "Trusted app",
-    description: "30 days, renewable, generous budgets.",
+    description: "30 days, renewable, generous budgets. Add services to it.",
     values: {
-      auth: "bearer",
       durationMs: 30 * 24 * 60 * 60 * 1000,
       renewal: { periodDays: 30 },
       budget: { dailyRequests: 2000, dailyTokens: 1_000_000 },
@@ -25,9 +35,8 @@ const STARTER_TEMPLATES = [
   },
   {
     name: "Demo / cheap tier",
-    description: "7 days, static, tight budgets.",
+    description: "7 days, tight budgets. Add services to it.",
     values: {
-      auth: "bearer",
       durationMs: 7 * 24 * 60 * 60 * 1000,
       renewal: null,
       budget: { dailyRequests: 100, dailyTokens: 50_000 },

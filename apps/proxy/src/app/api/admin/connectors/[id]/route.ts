@@ -76,12 +76,26 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   });
 }
 
+const PricingOverrideSchema = z.object({
+  inputPerMTok: z.number().nonnegative().finite(),
+  outputPerMTok: z.number().nonnegative().finite(),
+});
+
 const PatchSchema = z.union([
   z.object({ enabled: z.boolean() }),
   z.object({ action: z.literal("check_update") }),
   z.object({
     action: z.literal("apply_update"),
     document: z.record(z.unknown()),
+  }),
+  // Per-model pricing corrections, merged into the stored overrides:
+  // an entry sets a model's effective rates (0/0 = explicitly free),
+  // null removes the override so the document's own pricing returns.
+  z.object({
+    pricingOverrides: z.record(
+      z.string().min(1).max(200),
+      z.union([PricingOverrideSchema, z.null()]),
+    ),
   }),
 ]);
 
@@ -114,6 +128,27 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       const updated = await prisma.connector.update({
         where: { id: row.id },
         data: { enabled: data.enabled },
+      });
+      invalidateConnectorCache();
+      return NextResponse.json({ connector: updated });
+    }
+
+    if ("pricingOverrides" in data) {
+      const current =
+        (row.pricingOverrides as Record<string, unknown> | null) ?? {};
+      const merged: Record<string, unknown> = { ...current };
+      for (const [model, value] of Object.entries(data.pricingOverrides)) {
+        if (value === null) delete merged[model];
+        else merged[model] = value;
+      }
+      const updated = await prisma.connector.update({
+        where: { id: row.id },
+        data: {
+          pricingOverrides:
+            Object.keys(merged).length > 0
+              ? (merged as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+        },
       });
       invalidateConnectorCache();
       return NextResponse.json({ connector: updated });

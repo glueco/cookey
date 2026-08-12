@@ -128,6 +128,18 @@ export async function GET(request: NextRequest) {
           perms[0].monthlyTokenBudget - usage.monthlyTokens,
         );
       }
+      if (perms[0].dailyCostBudgetUsd) {
+        remaining.dailyCostUsd = Math.max(
+          0,
+          perms[0].dailyCostBudgetUsd - usage.dailyCostUsd,
+        );
+      }
+      if (perms[0].monthlyCostBudgetUsd) {
+        remaining.monthlyCostUsd = Math.max(
+          0,
+          perms[0].monthlyCostBudgetUsd - usage.monthlyCostUsd,
+        );
+      }
 
       return {
         resourceId,

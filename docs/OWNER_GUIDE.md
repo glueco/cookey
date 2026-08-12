@@ -37,31 +37,75 @@ it back.
 
 Apps request access with a **grant**: a small document saying which
 resources they want, *why* (you see their reasons word for word), and under
-what limits. Three ways a grant reaches you:
+what limits. Every app proposes one or more **access levels** — preset
+bundles like "Basic" vs. "Full" — and you pick one on the approval screen,
+the way OAuth consent works. Grants always come *from the app*; you never
+write one by hand. Two ways one reaches you:
 
-- **From the app's URL** (easiest): Grants → Add app → paste the app's URL.
+- **From the app's URL** (easiest): Grants → Connect an app → paste the app's
+  URL; its published request is fetched for review.
 - **Pairing code**: generate a single-use 10-minute code and paste it into
   the app; its request appears under Grants.
-- **Paste**: paste a grant JSON the developer sent you.
 
-The approval screen lets you decide:
+The approval screen walks the decision in order. Everything on it *narrows*
+what the app asked for — there's no control that grants more than the
+request did.
 
-- **Which providers** wildcard requests bind to ("any LLM" → you pick).
-- **Auth**: a static token (works everywhere, zero code for the app) or PoP
-  signing keys. For long-lived static tokens you'll see a red warning — a
-  leaked token is silently usable until expiry; renewable grants or PoP are
-  the safer defaults for anything long-lived.
-- **Duration & renewal**: renewable grants die by default unless you renew —
-  that's your safety net for forgotten apps.
-- **Budgets**: daily/monthly request and token caps. The **spend projection**
-  shows worst-case dollars per day from the connector's pricing. If you set
-  no caps at all, the screen says so loudly.
-- **Hardening**: pin the app's server IPs, keep browser calls blocked
-  (default), auto-suspend after N idle days.
+1. **Which access level**, from the app's proposed presets.
+2. **What it may do.** Each request shows the app's reason word for word,
+   with a switch to drop it entirely and a checkbox per operation — an app
+   that asked to both chat *and* list models can be given just one. Wildcard
+   requests ("any LLM") ask which of your providers to bind.
+3. **Limits per service.** Per bound connector: which models are allowed,
+   how long replies may be, whether streaming and tool-calling are on, mail
+   recipient caps and domain allowlists. Only limits the gateway can
+   actually enforce for that connector are offered — the controls are read
+   off the connector's own enforcement rules, so nothing you set here is
+   quietly ignored. Trimming the priciest model visibly lowers the spend
+   projection.
+4. **How long**: duration and renewal. Renewable grants die by default
+   unless you renew — that's your safety net for forgotten apps.
+5. **How much**: daily/monthly request, token and dollar caps. The
+   **spend projection** shows worst-case dollars per day from the
+   connector's pricing. Set no caps at all and the screen says so loudly.
+
+   Those rates are editable: each connector's detail page has a
+   **Pricing** table where you correct the per-model $/MTok to what
+   *you* actually pay — a free tier is 0 / 0, an unlisted model can be
+   priced, and blank means "unknown, don't estimate". Spend budgets,
+   projections and per-request cost estimates all follow your rates;
+   the frozen connector document is never modified.
+6. **Security**: the screen **states** the credential type rather than
+   offering it, because it isn't yours to pick — an app gets PoP signing
+   keys only if it ships a public key and signs every request, and a
+   static token otherwise. Hover the ⓘ for what each means. Static tokens
+   carry a warning proportional to their blast radius: a copyable secret
+   that works until expiry, or forever if you set none. Then pin the app's
+   server IPs, keep browser calls blocked (the default), and auto-suspend
+   after N idle days.
+
+A summary panel stays on screen throughout: services, operations granted,
+expiry, credential type and worst-case spend.
+
+The form opens on **exactly what the app asked for** — that request is the
+proposal you're reviewing. Everything on the screen subtracts from it, and
+**Reset to what was requested** in the summary panel puts it all back.
+If the app offers access levels, picking one is a shortcut that drops the
+requests outside it; leaving it on *Everything requested* is a valid
+answer, not a skipped step.
 
 On approve, the app gets its token (shown once, plus it stays viewable on the
 grant page until the app's first request) — or, for hosted apps, a one-time
 claim code via redirect.
+
+**Templates** (sidebar → Templates) are ready-to-use *permission packages*:
+the services and operations you're willing to hand out, the ceilings on
+each, and the duration, budget and hardening that go with them. Build one
+there, or save the current approval as one straight from the screen.
+Applying a template **narrows** a request to the package — it keeps what
+the app asked for *and* the package allows, drops the rest, and never adds
+anything the app didn't ask for. It reports what it dropped, and every
+field stays editable after.
 
 ## 4. Living with grants
 
