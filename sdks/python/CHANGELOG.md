@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-08-13
+
+### ⚠️ Breaking Changes
+
+- **`connect()` removed** — apps now submit a grant document (see the gateway's
+  `docs/GRANT_SPEC.md`) via `submit_grant(pairing_string, grant)`, which posts to
+  `/api/connect/prepare`. For PoP grants the public key is derived from
+  `GLUECO_PRIVATE_KEY` when the document omits it.
+- **`handle_callback()` removed** — poll
+  `{proxy_url}/api/connect/status?session={grant_id}` instead.
+- `submit_grant()` returns `{approval_url, proxy_url, grant_id, expires_at}` —
+  no secrets.
+
+### ✨ Added
+
+- `parse_pairing_string()` / `create_pairing_string()` for the
+  `pair::{url}::{code}` format.
+- PoP v1 canonical signing verified against the cross-language
+  `sdks/test-vectors.json` vectors.
+- `GatewayError` / `parse_gateway_error()` for structured gateway errors;
+  `ConnectError` for grant-submission failures.
+- `transport.request_stream()` streaming with `iter_lines()`.
+
+Bearer-token (`ck_`) users still need no SDK — any HTTP client or the
+unmodified `openai` package pointed at `{gateway}/r/llm/<provider>/v1` works.
+
 ## [0.4.0] - 2026-02-09
 
 ### ⚠️ Breaking Changes

@@ -1,9 +1,22 @@
-# Glueco SDK for Python
+# glueco-sdk (Python)
 
-[![PyPI version](https://badge.fury.io/py/glueco-sdk.svg)](https://pypi.org/project/glueco-sdk/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+**You probably don't need this package.** Cookey's default connection path is a
+static bearer token (`ck_…`) that works with any HTTP client or an unmodified
+OpenAI client — zero code changes, zero dependencies:
 
-Minimal transport + signing layer for the [Glueco Gateway](https://github.com/glueco/gateway).
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://your-gateway/r/llm/groq/v1",
+    api_key=os.environ["COOKEY_TOKEN"],
+)
+```
+
+This SDK exists **only** for PoP (proof-of-possession) auth on long-lived
+grants, where an Ed25519 keypair keeps the credential out of every request
+and log.
 
 ## Installation
 
@@ -13,119 +26,65 @@ pip install glueco-sdk
 
 ## Setup
 
-Generate a private key (one-time):
+Generate a private key (one-time) and set it server-side:
 
 ```bash
 python -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+export GLUECO_PRIVATE_KEY="<the output>"
 ```
 
-Set it server-side:
-
-```bash
-export GLUECO_PRIVATE_KEY="your-base64-encoded-32-byte-key"
-```
-
-## Quick Start
-
-### 1. Connect to Gateway
+## PoP quickstart
 
 ```python
-from glueco_sdk import connect, handle_callback, create_transport
+from glueco_sdk import submit_grant, create_transport
 
-# Connect (SDK sends public key to proxy)
-result = connect(
+# 1. Submit a grant document (docs/GRANT_SPEC.md in the gateway repo) with a
+#    pairing string from the gateway owner. The public key is derived from
+#    GLUECO_PRIVATE_KEY automatically.
+result = submit_grant(
     pairing_string="pair::https://gateway.example.com::abc123...",
-    app_name="My App",
-    requested_permissions=[
-        {"resource_id": "llm:groq", "actions": ["chat.completions"]},
-    ],
-    redirect_uri="https://myapp.com/callback",
+    grant={
+        "specVersion": "1",
+        "app": {"name": "My App"},
+        "runtime": "server",
+        "auth": "pop",
+        "requests": [
+            {
+                "resource": "llm:*",
+                "actions": ["chat.completions"],
+                "reason": "Core chat features.",
+            },
+        ],
+        "duration": "90d",
+    },
 )
 
-# Redirect user to approval
-print(f"Approve at: {result['approval_url']}")
-```
+# 2. The owner approves at result["approval_url"]; poll
+#    {proxy_url}/api/connect/status?session={grant_id} until "approved"
+#    (the response carries your app_id).
 
-### 2. Handle Callback
-
-```python
-# After user approves
-callback = handle_callback(status, app_id, expires_at)
-
-if callback["approved"]:
-    # Persist ONLY these two values:
-    my_db.save(
-        app_id=callback["app_id"],
-        proxy_url=result["proxy_url"],
-    )
-```
-
-### 3. Make Requests
-
-```python
-# Load saved credentials
-app_id, proxy_url = my_db.load()
-
-# Create transport (uses GLUECO_PRIVATE_KEY from env)
-transport = create_transport(proxy_url, app_id)
-
-# Use with plugins
-from glueco_plugin_llm import llm_client
-
-llm = llm_client(transport)
-response = llm.chat_completions(
-    provider="groq",
-    model="llama-3.1-8b-instant",
-    messages=[{"role": "user", "content": "Hello!"}],
+# 3. Signed requests after approval
+transport = create_transport(result["proxy_url"], app_id)
+response = transport.request(
+    "llm:groq",
+    "chat.completions",
+    {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": "Hi"}],
+    },
 )
-print(response.content)
 ```
 
-## Environment Variables
+Streaming uses `transport.request_stream(...)` and yields lines via
+`iter_lines()`.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GLUECO_PRIVATE_KEY` | Yes | Base64-encoded 32-byte Ed25519 seed |
+Persist only `{app_id, proxy_url}` — the private key stays in the
+environment, and the SDK stores nothing.
 
-## How It Works
-
-1. **Your app** provisions a private key (stored server-side in env)
-2. **SDK** derives the public key from that seed
-3. **During connect**, SDK sends public key to proxy (proxy stores it with app_id)
-4. **During requests**, SDK signs with env key, proxy verifies with stored public key
-
-App only persists: `{app_id, proxy_url}` — no secrets!
-
-## API Reference
-
-### connect()
+## Error handling
 
 ```python
-connect(
-    pairing_string: str,
-    app_name: str,
-    requested_permissions: list,
-    redirect_uri: str,
-) -> dict  # {approval_url, proxy_url, expires_at}
-```
-
-### handle_callback()
-
-```python
-handle_callback(status, app_id, expires_at) -> dict
-# {approved: bool, app_id: str, expires_at: datetime}
-```
-
-### create_transport()
-
-```python
-create_transport(proxy_url: str, app_id: str) -> GatewayTransport
-```
-
-## Error Handling
-
-```python
-from glueco_sdk import GatewayError, KeyError
+from glueco_sdk import GatewayError, ConnectError, KeyError
 
 try:
     transport = create_transport(proxy_url, app_id)
@@ -138,18 +97,11 @@ except GatewayError as e:
     print(f"Gateway error [{e.code}]: {e.message}")
 ```
 
-## Changelog
+## Wire protocol
 
-### v0.4.0 (Breaking)
-- Switched to env-only key: `GLUECO_PRIVATE_KEY`
-- Removed keypair generation
-- Removed storage abstractions
-- New `create_transport(proxy_url, app_id)` API
-- `connect()` no longer returns keypair
-
-### v0.3.0
-- Added GatewayTransport protocol
-- Added storage abstractions (removed in 0.4.0)
+The PoP v1 canonical request format is documented in the gateway repo's
+`docs/POP_PROTOCOL.md`; cross-language test vectors live in
+`sdks/test-vectors.json`. See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 
