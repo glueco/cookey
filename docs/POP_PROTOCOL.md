@@ -6,7 +6,7 @@ bearer credential ever crosses the wire.
 
 This document is **the contract** between the gateway and the SDKs. The
 canonical-request code is deliberately vendored in each implementation
-(gateway: `apps/proxy` + `packages/shared`; TS SDK: `packages/sdk/src/canonical.ts`;
+(gateway: `apps/proxy/src/shared/`; TS SDK: `packages/sdk/src/canonical.ts`;
 Python: `sdks/python/src/glueco_sdk/pop.py`) and kept in lockstep by the
 shared test vectors in [`sdks/test-vectors.json`](../sdks/test-vectors.json),
 which all three test suites consume.

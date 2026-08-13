@@ -231,15 +231,12 @@ paths:
         - { name: status, in: query, schema: { type: string } }
       responses: { "200": { description: Grants } }
     post:
-      summary: Create a PENDING grant from a pasted document
+      summary: Removed — manual grant creation is gone
+      description: >-
+        Grants only arrive app-initiated: POST /api/connect/prepare (pairing
+        code) or POST /api/admin/grants/fetch (well-known URL discovery).
       security: [{ adminSecret: [] }]
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties: { document: { $ref: "#/components/schemas/GrantDocument" } }
-      responses: { "200": { description: PENDING grant + approval URL } }
+      responses: { "410": { description: Gone } }
 
   /api/admin/grants/{id}:
     get:

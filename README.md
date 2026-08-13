@@ -62,7 +62,6 @@ grants, via the slim [`@glueco/sdk`](packages/sdk)).
 ```
 apps/proxy/          # the gateway (Next.js App Router + Prisma/Postgres)
 packages/sdk/        # @glueco/sdk — PoP signing only, zero deps
-packages/shared/     # internal shared types (private)
 sdks/python/         # glueco-sdk for Python (PoP signing)
 sdks/test-vectors.json  # cross-language PoP wire-protocol vectors
 examples/demo-target-app/  # reference consumer (bearer + PoP tabs)
