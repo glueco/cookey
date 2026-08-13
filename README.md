@@ -32,7 +32,7 @@ There is no central service.
 
 ## Deploy
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fglueco%2Fcookey&project-name=cookey&repository-name=cookey&env=ADMIN_SECRET,MASTER_KEY,GATEWAY_URL,CRON_SECRET&envDescription=ADMIN_SECRET%20is%20your%20dashboard%20password%2C%20MASTER_KEY%20encrypts%20provider%20keys%20(openssl%20rand%20-base64%2032)%2C%20GATEWAY_URL%20is%20your%20deployment%20URL%2C%20CRON_SECRET%20protects%20scheduled%20jobs&envLink=https%3A%2F%2Fgithub.com%2Fglueco%2Fcookey%2Fblob%2Fmain%2Fdocs%2FOWNER_GUIDE.md)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fglueco%2Fcookey&root-directory=apps%2Fproxy&project-name=cookey&repository-name=cookey&env=ADMIN_SECRET,MASTER_KEY,GATEWAY_URL,CRON_SECRET&envDescription=ADMIN_SECRET%20is%20your%20dashboard%20password%2C%20MASTER_KEY%20encrypts%20provider%20keys%20(openssl%20rand%20-base64%2032)%2C%20GATEWAY_URL%20is%20your%20deployment%20URL%2C%20CRON_SECRET%20protects%20scheduled%20jobs&envLink=https%3A%2F%2Fgithub.com%2Fglueco%2Fcookey%2Fblob%2Fmain%2Fdocs%2FOWNER_GUIDE.md)
 
 Postgres is the **only** backing service (pair with
 [Neon](https://neon.tech) through the Vercel marketplace integration).
