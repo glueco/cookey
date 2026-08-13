@@ -3,7 +3,7 @@
   "buildCommand": "cd ../.. && npm run build:proxy",
   "installCommand": "cd ../.. && npm install",
   "framework": "nextjs",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../packages/ ../../proxy.plugins.ts",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../packages/",
   "crons": [
     {
       "path": "/api/cron/sweep",
