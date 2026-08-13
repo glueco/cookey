@@ -3,21 +3,40 @@
 You run the gateway. This guide takes you from zero to approving your first
 app — no development experience needed.
 
+**You'll need:** a GitHub account, a free Vercel account, one API key from a
+provider you already pay (Groq, OpenAI, Gemini, Anthropic, or Resend), and
+about ten minutes.
+
 ## 1. Deploy (about 5 minutes)
 
-1. Click the deploy button in the [README](../README.md). Vercel forks the
-   repo and starts a deployment.
-2. When Vercel asks for storage, add a **Neon Postgres** database through the
-   marketplace integration — `DATABASE_URL` is filled in automatically.
-3. Set two environment variables by hand:
-   - `ADMIN_SECRET` — your dashboard password. Make it long and random.
-   - `MASTER_KEY` — encrypts your provider keys at rest. Generate with
-     `openssl rand -base64 32`. **Losing it means re-entering every key.**
-4. Recommended: set `CRON_SECRET` (any random string) so the scheduled
-   jobs — expiry sweeps, renewal reminders, weekly digests — can run.
-5. Set `GATEWAY_URL` to your deployment URL (e.g. `https://gw.you.dev`).
+1. Click the deploy button in the [README](../README.md). Vercel copies the
+   repo into your GitHub account and opens the setup screen.
+2. When Vercel asks for storage, add a **Neon Postgres** database through
+   the marketplace integration — `DATABASE_URL` is filled in automatically.
+   Database migrations run on every deploy; there's nothing to run by hand.
+3. Fill in the environment variables it prompts for:
 
-Open your deployment, enter the admin secret, and you're in.
+   | Variable | What it is |
+   |---|---|
+   | `ADMIN_SECRET` | Your dashboard password. Make it long and random. |
+   | `MASTER_KEY` | Encrypts your provider keys at rest. Generate with `openssl rand -base64 32`. **Losing it means re-entering every key.** |
+   | `GATEWAY_URL` | Your deployment URL — `https://<project-name>.vercel.app`, or your own domain if you attach one. You can start with the vercel.app one and change it later. |
+   | `CRON_SECRET` | Any random string. Lets the scheduled jobs run — expiry sweeps, renewal reminders, weekly digests. |
+
+4. Deploy. When it finishes, open the URL and sign in with your
+   `ADMIN_SECRET`.
+
+> Changed an environment variable later (say, `GATEWAY_URL` after attaching
+> a domain)? Vercel applies it on the **next** deploy — trigger a redeploy
+> from the dashboard.
+
+### Your first ten minutes
+
+1. **Deploy** and sign in (above).
+2. **Add a provider key** — Connectors → pick one → Credentials (section 2).
+3. **Connect your first app** — Grants → Connect an app (section 3).
+4. **Approve it** on the review screen, and the app is live through your
+   gateway — watch it under Logs.
 
 ## 2. First run: add a provider key
 
@@ -37,10 +56,10 @@ it back.
 
 Apps request access with a **grant**: a small document saying which
 resources they want, *why* (you see their reasons word for word), and under
-what limits. Every app proposes one or more **access levels** — preset
-bundles like "Basic" vs. "Full" — and you pick one on the approval screen,
-the way OAuth consent works. Grants always come *from the app*; you never
-write one by hand. Two ways one reaches you:
+what limits. Some apps also propose **access levels** — preset bundles like
+"Basic" vs. "Full" — and you pick one on the approval screen, the way OAuth
+consent works. Grants always come *from the app*; you never write one by
+hand. Two ways one reaches you:
 
 - **From the app's URL** (easiest): Grants → Connect an app → paste the app's
   URL; its published request is fetched for review.
@@ -51,7 +70,8 @@ The approval screen walks the decision in order. Everything on it *narrows*
 what the app asked for — there's no control that grants more than the
 request did.
 
-1. **Which access level**, from the app's proposed presets.
+1. **Which access level**, when the app proposes presets. No presets means
+   there's nothing to pick — the app's request list *is* the proposal.
 2. **What it may do.** Each request shows the app's reason word for word,
    with a switch to drop it entirely and a checkbox per operation — an app
    that asked to both chat *and* list models can be given just one. Wildcard

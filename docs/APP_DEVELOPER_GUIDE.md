@@ -4,6 +4,16 @@ Your users own Cookey gateways. Instead of asking them to paste an API key,
 you ask their gateway for a **grant** — and get back a token that works with
 the HTTP client you already use. **You do not need an SDK.**
 
+The whole flow is four steps:
+
+1. [Write a grant document](#1-write-your-grant-document) — what you need
+   and why, in JSON.
+2. [Get it to the gateway](#2-get-it-to-the-gateway-pick-one) — a
+   well-known URL or a pairing code.
+3. [Receive your token](#3-receive-your-token) once the owner approves.
+4. [Use it](#4-use-it--with-whatever-you-already-have) — the data plane
+   speaks the OpenAI wire format.
+
 ## 1. Write your grant document
 
 A grant document says what your app needs and why. Build one interactively at
@@ -116,6 +126,11 @@ these app-initiated routes.)
 
 - **No redirect (CLI, Streamlit, notebooks)**: the owner copies the token
   from the approval screen into your app's config/secrets.
+
+Validating a pasted token without burning its first use:
+`GET {gateway}/v1/token/verify` (`Authorization: Bearer ck_…`) returns
+`{ valid, grantId, expiresAt, services, operations }` — side-effect-free,
+so it's safe in a settings screen or startup check.
 
 ## 4. Use it — with whatever you already have
 

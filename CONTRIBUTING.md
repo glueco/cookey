@@ -39,5 +39,8 @@ npm run dev:proxy                            # http://localhost:3000
 
 ## Releases
 
-Only `@glueco/sdk` publishes to npm (via changesets). The gateway ships by
+`@glueco/sdk` publishes to npm via changesets: add a changeset with your PR,
+and merging the bot's "Version Packages" PR publishes. `glueco-sdk` (Python)
+is published to PyPI manually from `sdks/python/` — bump `pyproject.toml`
+and `CHANGELOG.md` in the same PR as the change. The gateway ships by
 deployment; the marketplace ships by merge.
