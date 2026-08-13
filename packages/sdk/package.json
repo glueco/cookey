@@ -1,7 +1,7 @@
 {
   "name": "@glueco/sdk",
-  "version": "0.4.0",
-  "description": "Cookey gateway SDK \u2014 PoP (Ed25519) signing for long-lived grants. Bearer-token users need no SDK.",
+  "version": "1.0.0",
+  "description": "Cookey gateway SDK — PoP (Ed25519) signing for long-lived grants. Bearer-token users need no SDK.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
