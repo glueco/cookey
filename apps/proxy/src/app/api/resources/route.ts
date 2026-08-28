@@ -7,8 +7,7 @@ import { CORS_HEADERS, CORS_PREFLIGHT_HEADERS } from "@/lib/cors";
 // ============================================
 // GET /api/resources
 // Public discovery endpoint — generated from enabled connectors,
-// filtered to those with configured credentials. Response shape is
-// unchanged from the plugin era (additive changes only).
+// filtered to those with configured credentials.
 // ============================================
 
 const GATEWAY_VERSION = "2.0.0";

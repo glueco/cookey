@@ -8,7 +8,6 @@ import type { ChatCompletionRequest } from "@/shared";
 // Translates OpenAI-style chat bodies → Anthropic /v1/messages
 // (system-message extraction, x-api-key + anthropic-version headers)
 // and translates responses AND SSE stream chunks back to OpenAI shape.
-// Ported from @glueco/plugin-llm-anthropic.
 // ============================================
 
 const configSchema = z.object({

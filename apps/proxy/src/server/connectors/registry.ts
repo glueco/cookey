@@ -16,7 +16,7 @@ import anthropicSeed from "./builtin/llm-anthropic.json";
 import resendSeed from "./builtin/mail-resend.json";
 
 // ============================================
-// CONNECTOR RUNTIME REGISTRY (replaces server/plugins/*)
+// CONNECTOR RUNTIME REGISTRY
 // Loads enabled connectors from the DB with a 60s in-memory cache and
 // explicit invalidation on admin mutations. The pipeline resolves
 // resourceId → { document, adapter } from here.

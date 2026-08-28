@@ -9,8 +9,8 @@ import type { ActionSpec, ConnectorDocument } from "@/server/connectors/schema";
 
 // ============================================
 // ADAPTER PARITY TESTS
-// Each adapter's wire translation is checked against the behavior the
-// plugin packages had (the reference implementations that were ported).
+// Each adapter's wire translation is checked against the provider's
+// documented request/response shape.
 // ============================================
 
 const CHAT_ACTION: ActionSpec = {

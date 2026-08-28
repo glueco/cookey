@@ -10,7 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@glueco/sdk": "*",
+    "@glueco/sdk": "^1.0.0",
     "next": "^15.5.23",
     "openai": "^7.4.0",
     "react": "^19.2.8",

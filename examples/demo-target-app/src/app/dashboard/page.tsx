@@ -565,7 +565,7 @@ export default function DashboardPage() {
               </p>
               <ul className="text-xs text-gray-500 space-y-1">
                 <li>• <code className="code-inline">@glueco/sdk</code> - PoP signing</li>
-                <li>• <code className="code-inline">@glueco/plugin-*</code> - Typed clients</li>
+                <li>• <code className="code-inline">lib/presets.ts</code> - Typed request bodies</li>
               </ul>
               <div className="alert-warning mt-3">
                 <p className="text-xs">

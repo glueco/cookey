@@ -7,8 +7,7 @@ import { applyAuth } from "./openai-compatible";
 // mail-send ADAPTER
 // JSON POST send-email shape. Enforcement (from/to domains, recipient
 // counts, html/attachments flags) runs in the generic engine; this
-// adapter only normalizes recipients and forwards. Ported from
-// @glueco/plugin-mail-resend.
+// adapter only normalizes recipients and forwards.
 // ============================================
 
 const configSchema = z.object({
@@ -44,7 +43,7 @@ export const mailSendAdapter: Adapter = {
     const body = { ...(input as MailBody) };
 
     // Normalize recipient-ish fields to arrays (Resend accepts both, but
-    // arrays keep the wire shape deterministic — matches the old plugin)
+    // arrays keep the wire shape deterministic)
     for (const field of ["to", "cc", "bcc", "reply_to"] as const) {
       const normalized = normalizeToArray(body[field]);
       if (normalized === undefined || (normalized as unknown[]).length === 0) {

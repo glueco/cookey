@@ -8,7 +8,7 @@ import type { ChatCompletionRequest } from "@/shared";
 // messages → contents/parts + systemInstruction; auth via ?key= query
 // param; paths /{model}:generateContent and
 // /{model}:streamGenerateContent?alt=sse; responses + stream chunks
-// converted to OpenAI shape. Ported from @glueco/plugin-llm-gemini.
+// converted to OpenAI shape.
 // ============================================
 
 const configSchema = z.object({

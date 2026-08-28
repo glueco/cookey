@@ -1,13 +1,13 @@
 # Demo Target App
 
-Reference implementation for integrating with a Personal Resource Gateway using the `@glueco/sdk`.
+Reference implementation for integrating with a Personal Resource Gateway. Two connection styles, side by side: PoP (server-side signing keys via `@glueco/sdk`) on the home page, and a plain bearer token (no SDK, works with the stock `openai` client) under `/bearer`.
 
 ## Features
 
-- **SDK Integration** - Uses `GatewayClient` for connection management and PoP signing
-- **Typed Plugin Clients** - Type-safe requests using plugin packages
-- **Browser Storage** - Custom localStorage-based storage implementations
-- **Modular Integrations** - Clean pattern for adding new resource types
+- **SDK Integration** - `createServerTransport` from `@glueco/sdk` signs every PoP request server-side; the private key never reaches the browser
+- **Zero-SDK Bearer Flow** - `/bearer` connects with a static `ck_` token and the stock `openai` client, no gateway-specific code at all
+- **Typed Request Presets** - `lib/presets.ts` builds the request bodies the dashboard sends for each connected resource
+- **Browser Storage** - Connections and pending sessions tracked in localStorage, keyed per gateway
 
 ## Installation
 
@@ -29,16 +29,13 @@ Open [http://localhost:3001](http://localhost:3001) in your browser.
 | Package | Purpose |
 |---------|---------|
 | `@glueco/sdk` | Gateway client, transport, PoP signing |
-| `@glueco/plugin-llm-gemini` | Gemini LLM integration |
-| `@glueco/plugin-llm-groq` | Groq LLM integration |
-| `@glueco/plugin-llm-openai` | OpenAI LLM integration |
-| `@glueco/plugin-mail-resend` | Resend email integration |
+| `openai` | Stock client used by the bearer-token flow |
 
 ## Usage
 
 ### 1. Connect to Gateway
 
-Get a pairing string from your proxy's admin dashboard and enter it on the home page.
+Get a pairing string from your proxy's admin dashboard and enter it on the home page (or paste a `ck_` token directly on `/bearer`).
 
 ### 2. Approve Permissions
 
@@ -53,31 +50,30 @@ Use the dashboard to test typed requests to available resources.
 ```
 src/
 ├── app/
-│   ├── page.tsx              # Connection page
-│   └── dashboard/page.tsx    # Request testing
-├── integrations/
-│   ├── llm/
-│   │   ├── gemini.ts         # Typed Gemini client
-│   │   ├── groq.ts           # Typed Groq client
-│   │   └── openai.ts         # Typed OpenAI client
-│   └── mail/
-│       └── resend.ts         # Typed Resend client
-└── lib/
-    ├── gateway.ts            # GatewayClient singleton
-    ├── storage.ts            # Browser storage implementations
-    └── presets.ts            # Test request presets
+│   ├── page.tsx                  # PoP connection page
+│   ├── bearer/page.tsx           # Zero-SDK bearer-token connection page
+│   ├── callback/page.tsx         # Approval redirect landing page
+│   ├── dashboard/page.tsx        # Request testing (PoP flow)
+│   └── api/
+│       ├── connect/             # Prepare + poll grant status
+│       ├── invoke/              # Sign and forward a PoP request
+│       ├── rotate/              # Rotate the app's signing key
+│       └── bearer/              # Grant lookup + chat for the bearer flow
+├── lib/
+│   ├── gateway.server.ts        # createServerTransport singleton
+│   ├── handle.server.ts         # Signed connection-handle issuing/verification
+│   ├── discovery.ts             # Fetch a gateway's available resources
+│   ├── storage.ts               # Browser storage helpers
+│   └── presets.ts               # Typed test request builders
+└── components/
+    └── DemoMark.tsx              # In-app Cookey mark
 ```
-
-## Documentation
-
-- [SDK Integration Guide](docs/sdk-integration.md) - How to use the SDK
-- [Adding Integrations](docs/adding-integrations.md) - How to add new plugins
 
 ## Security
 
 - Credentials stored in browser localStorage only
 - Session TTL enforced by gateway
-- PoP (Proof of Possession) signing for all requests
+- PoP (Proof of Possession) signing for all requests on the home-page flow
 
 ## License
 

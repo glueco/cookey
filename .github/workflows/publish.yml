@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: npm ci || (sleep 10 && npm ci)
 
+      - name: Build SDK
+        run: npm run build:sdk
+
       - name: Publish via Changesets (OIDC)
         run: npm run release
         env:

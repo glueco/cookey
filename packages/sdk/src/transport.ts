@@ -1,6 +1,8 @@
 // ============================================
 // GATEWAY TRANSPORT INTERFACE
-// Minimal transport interface for plugin clients
+// The signed-request interface createTransport() returns: PoP signing,
+// base URL handling, and error parsing, behind a single typed
+// request()/requestStream() call keyed by resourceId + action.
 // ============================================
 
 /**
@@ -54,26 +56,17 @@ export interface GatewayStreamResponse {
 /**
  * Gateway Transport Interface
  *
- * This is the minimal interface that plugin clients depend on.
- * It abstracts away PoP signing, baseURL handling, and error parsing.
- *
- * Plugin clients should use this interface instead of importing
- * the full SDK implementation to maintain separation of concerns.
+ * Returned by createTransport(). Abstracts away PoP signing, baseURL
+ * handling, and error parsing behind a single typed call.
  *
  * @example
  * ```ts
- * // In plugin client
- * export function gemini(transport: GatewayTransport) {
- *   return {
- *     async generateContent(payload: GeminiGenerateContentRequest) {
- *       return transport.request<GeminiGenerateContentResponse>(
- *         "llm:gemini",
- *         "chat.completions",
- *         payload
- *       );
- *     }
- *   };
- * }
+ * const transport = createTransport({ proxyUrl, appId });
+ * const { data } = await transport.request<ChatResponse>(
+ *   "llm:gemini",
+ *   "chat.completions",
+ *   payload
+ * );
  * ```
  */
 export interface GatewayTransport {
@@ -123,23 +116,3 @@ export interface GatewayTransport {
    */
   getFetch(): typeof fetch;
 }
-
-/**
- * Type helper for creating typed plugin client factories.
- *
- * @example
- * ```ts
- * export const gemini: PluginClientFactory<GeminiClient> = (transport) => ({
- *   generateContent: (payload) => transport.request("llm:gemini", "chat.completions", payload)
- * });
- * ```
- */
-export type PluginClientFactory<TClient> = (
-  transport: GatewayTransport,
-) => TClient;
-
-/**
- * Type helper to extract the return type of a plugin client factory.
- */
-export type PluginClient<T extends PluginClientFactory<unknown>> =
-  T extends PluginClientFactory<infer C> ? C : never;
