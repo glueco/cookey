@@ -2,8 +2,8 @@
   "specVersion": "1",
   "id": "llm:groq",
   "name": "Groq",
-  "version": "1.1.0",
-  "description": "Fast LLM inference (Llama family) via Groq.",
+  "version": "1.2.0",
+  "description": "Fast LLM inference via Groq.",
   "homepage": "https://groq.com",
   "resourceType": "llm",
   "adapter": "openai-compatible",
@@ -54,8 +54,8 @@
     }
   },
   "models": [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant"
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b"
   ],
   "credentials": [
     {
@@ -80,13 +80,13 @@
   },
   "errorCodePath": "error.code",
   "pricing": {
-    "llama-3.3-70b-versatile": {
-      "inputPerMTok": 0.59,
-      "outputPerMTok": 0.79
+    "openai/gpt-oss-120b": {
+      "inputPerMTok": 0.15,
+      "outputPerMTok": 0.60
     },
-    "llama-3.1-8b-instant": {
-      "inputPerMTok": 0.05,
-      "outputPerMTok": 0.08
+    "openai/gpt-oss-20b": {
+      "inputPerMTok": 0.075,
+      "outputPerMTok": 0.30
     }
   }
 }

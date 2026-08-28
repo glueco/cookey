@@ -49,7 +49,7 @@ export interface Preset {
  */
 export function buildGroqChatRequest(): GroqRequest {
   return {
-    model: "llama-3.1-8b-instant",
+    model: "openai/gpt-oss-20b",
     messages: [
       {
         role: "user",
@@ -65,7 +65,7 @@ export function buildGroqChatRequest(): GroqRequest {
  */
 export function buildGeminiChatRequest(): GeminiRequest {
   return {
-    model: "gemini-2.5-flash",
+    model: "gemini-3-flash",
     messages: [
       {
         role: "user",

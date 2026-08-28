@@ -33,7 +33,7 @@ import {
   ToastProvider,
   useToast,
 } from "@/components/ui";
-import { TokenSuccessScreen } from "./TokenSuccessScreen";
+import { GrantDeliveryPanel } from "./GrantDeliveryPanel";
 
 // ============================================
 // GRANT APPROVAL FORM
@@ -187,8 +187,14 @@ function ApprovalFormInner({
 
   const [submitting, setSubmitting] = useState<"approve" | "deny" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [issuedToken, setIssuedToken] = useState<string | null>(null);
-  const [finished, setFinished] = useState<"approved" | "denied" | null>(null);
+  const [denied, setDenied] = useState(false);
+  // Whatever the server was able to produce for handing this off to the
+  // app — a redirect, a token, both, or neither. GrantDeliveryPanel
+  // renders all of it as one shape instead of three separate screens.
+  const [delivery, setDelivery] = useState<{
+    redirectUri?: string;
+    token?: string;
+  } | null>(null);
 
   // ---- derived scope ---------------------------------------------------
 
@@ -609,13 +615,8 @@ function ApprovalFormInner({
         );
       }
 
-      if (decision === "deny") return setFinished("denied");
-      if (data.redirectUri) {
-        window.location.href = data.redirectUri;
-        return;
-      }
-      if (data.token) return setIssuedToken(data.token);
-      setFinished("approved");
+      if (decision === "deny") return setDenied(true);
+      setDelivery({ redirectUri: data.redirectUri, token: data.token });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
@@ -628,48 +629,33 @@ function ApprovalFormInner({
 
   // ---- terminal states -------------------------------------------------
 
-  if (issuedToken) {
-    return (
-      <TokenSuccessScreen
-        token={issuedToken}
-        appName={doc.app.name}
-        boundResources={services.map((service) => service.resourceId)}
-      />
-    );
-  }
-
-  if (finished) {
-    const approved = finished === "approved";
+  if (denied) {
     return (
       <div className="text-center py-10 animate-scale-in">
-        <div
-          className={`w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center ${
-            approved
-              ? "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-              : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-          }`}
-        >
+        <div className="w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-500">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            {approved ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            )}
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </div>
         <p className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
-          {approved ? "Access granted" : "Request denied"}
+          Request denied
         </p>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5">
-          {approved
-            ? `${doc.app.name} can now connect ${
-                auth === "pop"
-                  ? "with its signing keys"
-                  : "with the token it was issued"
-              }.`
-            : `${doc.app.name} was told the connection was declined.`}
+          {doc.app.name} was told the connection was declined.
         </p>
       </div>
+    );
+  }
+
+  if (delivery) {
+    return (
+      <GrantDeliveryPanel
+        appName={doc.app.name}
+        auth={auth}
+        redirectUri={delivery.redirectUri}
+        token={delivery.token}
+        boundResources={services.map((service) => service.resourceId)}
+      />
     );
   }
 
@@ -754,268 +740,283 @@ function ApprovalFormInner({
           </div>
         </Step>
 
-        {/* 3 — per-service limits */}
-        {services.length > 0 && (
+        {/* 3–6 — everything with a sane default: limits, duration, budget,
+            security. Visible on demand rather than by default, since the
+            form already opens at exactly what the app asked for — these
+            are for the owner who wants to change that, not the one who's
+            fine with it. */}
+        <AdvancedOptions
+          summary={`Expires ${
+            durationMs === null ? "never" : expiryLabel
+          } · ${
+            projection.hasLlm
+              ? projection.unbounded
+                ? "unbounded spend"
+                : projection.hasKnown
+                  ? `≈ $${projection.total.toFixed(2)}/day`
+                  : "spend unknown"
+              : "no metered spend"
+          }`}
+        >
+          {/* per-service limits */}
+          {services.length > 0 && (
+            <Step
+              title="Limits per service"
+              hint="These are the ceilings the gateway enforces on every single request — before it ever reaches the provider, and regardless of what the app sends. Each line states what's in force; open one to change it."
+            >
+              <div className="space-y-2">
+                {services.map((service) =>
+                  service.capability ? (
+                    <ServiceLimits
+                      key={service.resourceId}
+                      capability={service.capability}
+                      activeActions={service.actions}
+                      values={constraints[service.resourceId] ?? {}}
+                      requestedValues={service.requested}
+                      // A single bound service is the whole section — no
+                      // point making the owner click to see it.
+                      defaultOpen={services.length === 1}
+                      onChange={(values) =>
+                        setConstraints((prev) => ({
+                          ...prev,
+                          [service.resourceId]: values,
+                        }))
+                      }
+                    />
+                  ) : (
+                    <p key={service.resourceId} className="callout-warning">
+                      <code className="font-mono">{service.resourceId}</code> has
+                      no enabled connector on this gateway — the app will get a
+                      permission it cannot use until you install one.
+                    </p>
+                  ),
+                )}
+              </div>
+            </Step>
+          )}
+
+          {/* duration */}
           <Step
-            n={accessOptions.length > 0 ? 3 : 2}
-            title="Limits per service"
-            hint="These are the ceilings the gateway enforces on every single request — before it ever reaches the provider, and regardless of what the app sends. Each line states what's in force; open one to change it."
+            title="How long"
+            hint={
+              durationMs === null
+                ? "A grant that never expires is one you have to remember to revoke."
+                : `Access ends on ${expiryLabel} unless you renew it.`
+            }
           >
-            <div className="space-y-2">
-              {services.map((service) =>
-                service.capability ? (
-                  <ServiceLimits
-                    key={service.resourceId}
-                    capability={service.capability}
-                    activeActions={service.actions}
-                    values={constraints[service.resourceId] ?? {}}
-                    requestedValues={service.requested}
-                    // A single bound service is the whole section — no
-                    // point making the owner click to see it.
-                    defaultOpen={services.length === 1}
-                    onChange={(values) =>
-                      setConstraints((prev) => ({
-                        ...prev,
-                        [service.resourceId]: values,
-                      }))
-                    }
+            <div className="space-y-4">
+              <div className="overflow-x-auto scrollbar-hide -mx-1 px-1">
+                <Segmented
+                  value={durationMs}
+                  onChange={setDurationMs}
+                  options={DURATION_PRESETS.map((preset) => ({
+                    value: preset.ms,
+                    label: preset.label,
+                  }))}
+                />
+              </div>
+              {/* The app may have asked for something no preset covers —
+                  offer it explicitly rather than silently rounding. */}
+              {requestedDurationMs !== durationMs &&
+                !DURATION_PRESETS.some((p) => p.ms === requestedDurationMs) && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary-600 dark:text-primary-400 underline underline-offset-2"
+                    onClick={() => setDurationMs(requestedDurationMs)}
+                  >
+                    Use exactly what was requested ({doc.duration})
+                  </button>
+                )}
+
+              <div className="well p-3.5 space-y-3">
+                <Switch
+                  checked={renewable}
+                  onChange={setRenewable}
+                  label="Renewable"
+                  description="The token lives one period at a time and lapses unless you renew — the safest shape for long-running access."
+                />
+                {renewable && (
+                  <div className="flex items-center gap-2 pl-12">
+                    <span className="text-[13px] text-slate-600 dark:text-slate-300">
+                      Every
+                    </span>
+                    <div className="w-24">
+                      <NumberField
+                        value={String(renewalDays)}
+                        onChange={(value) => {
+                          const parsed = parseInt(value || "30", 10);
+                          setRenewalDays(
+                            Number.isNaN(parsed) ? 30 : Math.max(1, parsed),
+                          );
+                        }}
+                        placeholder="30"
+                      />
+                    </div>
+                    <span className="text-[13px] text-slate-600 dark:text-slate-300">
+                      days
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Step>
+
+          {/* budget */}
+          <Step
+            title="How much"
+            hint="Caps are enforced per resource and reset on their own schedule. Leave a field empty for no limit."
+          >
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {BUDGET_FIELDS.map(([key, label]) => (
+                  <Field key={key} label={label}>
+                    <NumberField
+                      value={budget[key]}
+                      min={COST_BUDGET_KEYS.includes(key) ? 0 : 1}
+                      onChange={(value) =>
+                        setBudget((prev) => ({ ...prev, [key]: value }))
+                      }
+                    />
+                  </Field>
+                ))}
+              </div>
+
+              {BUDGET_FIELDS.every(([key]) => !budget[key]) && (
+                <p className="callout-warning">
+                  No caps set — this grant can spend without limit. A daily
+                  spend cap is the single most useful guardrail here.
+                </p>
+              )}
+
+              {loosened && (
+                <label className="callout-warning flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 shrink-0"
+                    checked={loosenedAck}
+                    onChange={(event) => setLoosenedAck(event.target.checked)}
                   />
-                ) : (
-                  <p key={service.resourceId} className="callout-warning">
-                    <code className="font-mono">{service.resourceId}</code> has
-                    no enabled connector on this gateway — the app will get a
-                    permission it cannot use until you install one.
-                  </p>
-                ),
+                  <span>
+                    These limits are looser than {doc.app.name} asked for. I know,
+                    and I want that.
+                  </span>
+                </label>
+              )}
+
+              {projection.hasLlm && (
+                <div className="well p-3.5">
+                  <p className="eyebrow mb-1.5">Worst-case spend</p>
+                  {projection.unbounded ? (
+                    <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+                      Unbounded — with no daily cap there is no ceiling to
+                      project.
+                    </p>
+                  ) : projection.hasKnown ? (
+                    <>
+                      <p className="text-sm text-slate-800 dark:text-slate-100">
+                        Up to{" "}
+                        <span className="font-semibold tabular-nums">
+                          ${projection.total.toFixed(2)}
+                        </span>
+                        /day
+                        <span className="text-slate-500 dark:text-slate-400">
+                          {" "}
+                          (≈ ${(projection.total * 30).toFixed(0)}/month) on your
+                          keys
+                        </span>
+                      </p>
+                      <ul className="mt-1.5 space-y-0.5">
+                        {projection.rows.map((row) => (
+                          <li
+                            key={row.resourceId}
+                            className="text-xs text-slate-500 dark:text-slate-400 flex justify-between gap-3"
+                          >
+                            <span className="font-mono truncate">
+                              {row.resourceId}
+                            </span>
+                            <span className="tabular-nums shrink-0">
+                              {row.perDay !== null
+                                ? `$${row.perDay.toFixed(2)}/day`
+                                : "no pricing data"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="field-hint">
+                      No pricing data for the bound connectors — no estimate
+                      available.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </Step>
-        )}
 
-        {/* 4 — duration */}
-        <Step
-          n={accessOptions.length > 0 ? 4 : 3}
-          title="How long"
-          hint={
-            durationMs === null
-              ? "A grant that never expires is one you have to remember to revoke."
-              : `Access ends on ${expiryLabel} unless you renew it.`
-          }
-        >
-          <div className="space-y-4">
-            <div className="overflow-x-auto scrollbar-hide -mx-1 px-1">
-              <Segmented
-                value={durationMs}
-                onChange={setDurationMs}
-                options={DURATION_PRESETS.map((preset) => ({
-                  value: preset.ms,
-                  label: preset.label,
-                }))}
+          {/* security */}
+          <Step
+            title="Security"
+            hint="How the app proves it's the app, and where it's allowed to call from."
+          >
+            <div className="space-y-4">
+              <CredentialSummary
+                auth={auth}
+                appName={doc.app.name}
+                expiryLabel={durationMs === null ? "never" : expiryLabel}
+                renewable={renewable}
               />
-            </div>
-            {/* The app may have asked for something no preset covers —
-                offer it explicitly rather than silently rounding. */}
-            {requestedDurationMs !== durationMs &&
-              !DURATION_PRESETS.some((p) => p.ms === requestedDurationMs) && (
-                <button
-                  type="button"
-                  className="text-xs text-primary-600 dark:text-primary-400 underline underline-offset-2"
-                  onClick={() => setDurationMs(requestedDurationMs)}
-                >
-                  Use exactly what was requested ({doc.duration})
-                </button>
-              )}
 
-            <div className="well p-3.5 space-y-3">
-              <Switch
-                checked={renewable}
-                onChange={setRenewable}
-                label="Renewable"
-                description="The token lives one period at a time and lapses unless you renew — the safest shape for long-running access."
-              />
-              {renewable && (
-                <div className="flex items-center gap-2 pl-12">
+              <Field
+                label="Egress IP allowlist"
+                hint={
+                  doc.runtime === "server"
+                    ? "Recommended — this app runs on a server, so its outbound IPs are stable. Requests from anywhere else are rejected outright."
+                    : "Requests from any other address are rejected. Leave empty to allow any origin."
+                }
+              >
+                <TagInput
+                  values={egressIps}
+                  onChange={setEgressIps}
+                  placeholder="203.0.113.7 or 198.51.100.0/24"
+                />
+              </Field>
+
+              <div className="well p-3.5 space-y-3">
+                <Switch
+                  checked={allowBrowser}
+                  onChange={setAllowBrowser}
+                  tone="danger"
+                  label="Allow browser-originated requests"
+                  description="Only for apps that genuinely run in the browser."
+                />
+                {allowBrowser && (
+                  <p className="callout-danger ml-12">
+                    Anyone who can run JavaScript against this grant's token can
+                    use it from any website.
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
                   <span className="text-[13px] text-slate-600 dark:text-slate-300">
-                    Every
+                    Suspend after
                   </span>
-                  <div className="w-24">
+                  <div className="w-20">
                     <NumberField
-                      value={String(renewalDays)}
-                      onChange={(value) => {
-                        const parsed = parseInt(value || "30", 10);
-                        setRenewalDays(
-                          Number.isNaN(parsed) ? 30 : Math.max(1, parsed),
-                        );
-                      }}
-                      placeholder="30"
+                      value={inactivityDays}
+                      min={0}
+                      onChange={setInactivityDays}
+                      placeholder="0"
                     />
                   </div>
                   <span className="text-[13px] text-slate-600 dark:text-slate-300">
-                    days
+                    idle days
+                    <span className="text-slate-400"> (0 = never)</span>
                   </span>
                 </div>
-              )}
-            </div>
-          </div>
-        </Step>
-
-        {/* 5 — budget */}
-        <Step
-          n={accessOptions.length > 0 ? 5 : 4}
-          title="How much"
-          hint="Caps are enforced per resource and reset on their own schedule. Leave a field empty for no limit."
-        >
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {BUDGET_FIELDS.map(([key, label]) => (
-                <Field key={key} label={label}>
-                  <NumberField
-                    value={budget[key]}
-                    min={COST_BUDGET_KEYS.includes(key) ? 0 : 1}
-                    onChange={(value) =>
-                      setBudget((prev) => ({ ...prev, [key]: value }))
-                    }
-                  />
-                </Field>
-              ))}
-            </div>
-
-            {BUDGET_FIELDS.every(([key]) => !budget[key]) && (
-              <p className="callout-warning">
-                No caps set — this grant can spend without limit. A daily
-                spend cap is the single most useful guardrail here.
-              </p>
-            )}
-
-            {loosened && (
-              <label className="callout-warning flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 shrink-0"
-                  checked={loosenedAck}
-                  onChange={(event) => setLoosenedAck(event.target.checked)}
-                />
-                <span>
-                  These limits are looser than {doc.app.name} asked for. I know,
-                  and I want that.
-                </span>
-              </label>
-            )}
-
-            {projection.hasLlm && (
-              <div className="well p-3.5">
-                <p className="eyebrow mb-1.5">Worst-case spend</p>
-                {projection.unbounded ? (
-                  <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">
-                    Unbounded — with no daily cap there is no ceiling to
-                    project.
-                  </p>
-                ) : projection.hasKnown ? (
-                  <>
-                    <p className="text-sm text-slate-800 dark:text-slate-100">
-                      Up to{" "}
-                      <span className="font-semibold tabular-nums">
-                        ${projection.total.toFixed(2)}
-                      </span>
-                      /day
-                      <span className="text-slate-500 dark:text-slate-400">
-                        {" "}
-                        (≈ ${(projection.total * 30).toFixed(0)}/month) on your
-                        keys
-                      </span>
-                    </p>
-                    <ul className="mt-1.5 space-y-0.5">
-                      {projection.rows.map((row) => (
-                        <li
-                          key={row.resourceId}
-                          className="text-xs text-slate-500 dark:text-slate-400 flex justify-between gap-3"
-                        >
-                          <span className="font-mono truncate">
-                            {row.resourceId}
-                          </span>
-                          <span className="tabular-nums shrink-0">
-                            {row.perDay !== null
-                              ? `$${row.perDay.toFixed(2)}/day`
-                              : "no pricing data"}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <p className="field-hint">
-                    No pricing data for the bound connectors — no estimate
-                    available.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </Step>
-
-        {/* 6 — security */}
-        <Step
-          n={accessOptions.length > 0 ? 6 : 5}
-          title="Security"
-          hint="How the app proves it's the app, and where it's allowed to call from."
-        >
-          <div className="space-y-4">
-            <CredentialSummary
-              auth={auth}
-              appName={doc.app.name}
-              expiryLabel={durationMs === null ? "never" : expiryLabel}
-              renewable={renewable}
-            />
-
-            <Field
-              label="Egress IP allowlist"
-              hint={
-                doc.runtime === "server"
-                  ? "Recommended — this app runs on a server, so its outbound IPs are stable. Requests from anywhere else are rejected outright."
-                  : "Requests from any other address are rejected. Leave empty to allow any origin."
-              }
-            >
-              <TagInput
-                values={egressIps}
-                onChange={setEgressIps}
-                placeholder="203.0.113.7 or 198.51.100.0/24"
-              />
-            </Field>
-
-            <div className="well p-3.5 space-y-3">
-              <Switch
-                checked={allowBrowser}
-                onChange={setAllowBrowser}
-                tone="danger"
-                label="Allow browser-originated requests"
-                description="Only for apps that genuinely run in the browser."
-              />
-              {allowBrowser && (
-                <p className="callout-danger ml-12">
-                  Anyone who can run JavaScript against this grant's token can
-                  use it from any website.
-                </p>
-              )}
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] text-slate-600 dark:text-slate-300">
-                  Suspend after
-                </span>
-                <div className="w-20">
-                  <NumberField
-                    value={inactivityDays}
-                    min={0}
-                    onChange={setInactivityDays}
-                    placeholder="0"
-                  />
-                </div>
-                <span className="text-[13px] text-slate-600 dark:text-slate-300">
-                  idle days
-                  <span className="text-slate-400"> (0 = never)</span>
-                </span>
               </div>
             </div>
-          </div>
-        </Step>
+          </Step>
+        </AdvancedOptions>
 
         <RawJsonExpander value={doc} />
       </div>
@@ -1203,7 +1204,9 @@ function Step({
   optional = false,
   children,
 }: {
-  n: number;
+  /** Omit for a step nested inside AdvancedOptions — those aren't part
+   *  of the numbered top-level sequence. */
+  n?: number;
   title: string;
   hint?: string;
   /** Marks a step that can be skipped outright — a shortcut, not a gate */
@@ -1213,9 +1216,11 @@ function Step({
   return (
     <section>
       <div className="flex items-baseline gap-2.5 mb-1">
-        <span className="w-5 h-5 shrink-0 self-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-semibold flex items-center justify-center">
-          {n}
-        </span>
+        {n !== undefined && (
+          <span className="w-5 h-5 shrink-0 self-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-semibold flex items-center justify-center">
+            {n}
+          </span>
+        )}
         <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">
           {title}
         </h3>
@@ -1226,10 +1231,57 @@ function Step({
         )}
       </div>
       {hint && (
-        <p className="field-hint mb-3.5 ml-[1.9rem] max-w-2xl">{hint}</p>
+        <p
+          className={`field-hint mb-3.5 max-w-2xl ${n !== undefined ? "ml-[1.9rem]" : ""}`}
+        >
+          {hint}
+        </p>
       )}
-      <div className="ml-0 sm:ml-[1.9rem]">{children}</div>
+      <div className={n !== undefined ? "ml-0 sm:ml-[1.9rem]" : ""}>
+        {children}
+      </div>
     </section>
+  );
+}
+
+/**
+ * Everything past "what may it do" — limits, duration, budget, security
+ * — folded behind one disclosure. The form opens at exactly what the
+ * app asked for with sane defaults already filled in, so these are for
+ * the owner who wants to change something, not the one who's fine
+ * with it; showing all four sections by default just buries the one
+ * decision that actually needs a human every time (what the app may
+ * do) under ones that usually don't.
+ */
+function AdvancedOptions({
+  summary,
+  children,
+}: {
+  /** One-line preview of the current settings, shown even when closed. */
+  summary: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group">
+      <summary className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 cursor-pointer select-none list-none py-1">
+        <svg
+          className="w-3.5 h-3.5 shrink-0 self-center text-slate-400 transition-transform group-open:rotate-90"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+        </svg>
+        <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">
+          Advanced options
+        </h3>
+        <span className="field-hint">{summary}</span>
+      </summary>
+      <div className="mt-5 space-y-8 pl-[1.9rem] border-l border-slate-200 dark:border-slate-800 ml-[0.4rem]">
+        {children}
+      </div>
+    </details>
   );
 }
 

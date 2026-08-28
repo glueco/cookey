@@ -259,20 +259,37 @@ function HomePageContent() {
       const urlParams = new URLSearchParams(window.location.search);
       const status = urlParams.get("status");
       const appId = urlParams.get("app_id");
-      
+      const grantId = urlParams.get("grant_id");
+      const gatewayFromUrl = urlParams.get("gateway");
+
       if (status === "approved" && appId) {
         // We returned from approval - confirm with one status poll and
-        // complete the connection using the pending session
+        // complete the connection. Prefer the grant id carried on THIS
+        // redirect over the single "pending session" slot in
+        // localStorage: that slot is shared across every connect
+        // attempt in this browser, so a second/concurrent attempt (a
+        // retry, another tab) can overwrite it before this redirect
+        // lands. Trusting it blindly would poll a different — possibly
+        // never-approved — grant forever while this one sits approved
+        // and unnoticed.
         const pending = loadPendingSession();
-        if (pending) {
-          try {
-            // Fetch handle from server
-            const response = await fetch(
-              `/api/connect/status?session=${encodeURIComponent(pending.sessionToken)}&gatewayUrl=${encodeURIComponent(pending.gatewayUrl)}`
-            );
-            const data = await response.json();
+        const session =
+          grantId && gatewayFromUrl
+            ? { sessionToken: grantId, gatewayUrl: gatewayFromUrl }
+            : pending;
+        // Only the pending-session entry that actually belongs to this
+        // grant should be cleared or reused for the retry queue below —
+        // clearing someone else's in-flight attempt would strand it.
+        const pendingMatchesThisGrant = pending?.sessionToken === session?.sessionToken;
 
-            if (data.status === "approved" && data.handle) {
+        if (session) {
+          try {
+            const response = await fetch(
+              `/api/connect/status?session=${encodeURIComponent(session.sessionToken)}&gatewayUrl=${encodeURIComponent(session.gatewayUrl)}`
+            );
+            const data = response.ok ? await response.json() : null;
+
+            if (data?.status === "approved" && data.handle) {
               const connection: Connection = {
                 gatewayUrl: data.gatewayUrl,
                 appId: data.appId,
@@ -282,21 +299,23 @@ function HomePageContent() {
               addConnection(connection);
               setConnections(loadConnections());
               setActiveConnection(connection);
-              clearPendingSession();
-            } else if (data.status === "rejected" || data.status === "expired") {
+              if (pendingMatchesThisGrant) clearPendingSession();
+            } else if (data?.status === "rejected" || data?.status === "expired") {
               setError(`Connection ${data.status}. Please try again.`);
-              clearPendingSession();
+              if (pendingMatchesThisGrant) clearPendingSession();
             } else {
-              // Gateway hasn't settled yet - resume polling instead of
-              // dropping the session
+              // Gateway hasn't settled yet (or the status check itself
+              // failed) - resume polling against THIS grant, not
+              // whatever else might be sitting in the pending slot.
               setPolling(true);
-              setPollingSession(pending);
+              setPollingSession(session);
             }
           } catch (err) {
             console.error("Failed to complete connection:", err);
-            // Transient error - resume polling rather than dropping the session
+            // Transient error - resume polling against this grant rather
+            // than dropping it.
             setPolling(true);
-            setPollingSession(pending);
+            setPollingSession(session);
           }
         }
         // Clear URL params
@@ -354,7 +373,21 @@ function HomePageContent() {
         const response = await fetch(
           `/api/connect/status?session=${encodeURIComponent(pollingSession.sessionToken)}&gatewayUrl=${encodeURIComponent(pollingSession.gatewayUrl)}`
         );
+        if (!response.ok) {
+          // Transient server error - keep polling rather than treating
+          // this the same as "still pending" forever silently; a
+          // non-OK response was previously indistinguishable from a
+          // genuine pending grant, so it never surfaced.
+          console.error(`Status check failed: ${response.status}`);
+          return;
+        }
         const data = await response.json();
+
+        // Only clear the shared pending-session slot if it still points
+        // at the grant we're polling — a concurrent connect attempt may
+        // have overwritten it with a different, still-in-flight grant.
+        const stillOwnsPendingSlot =
+          loadPendingSession()?.sessionToken === pollingSession.sessionToken;
 
         if (data.status === "approved" && data.handle) {
           // Success! Store connection and stop polling
@@ -367,13 +400,13 @@ function HomePageContent() {
           addConnection(connection);
           setConnections(loadConnections());
           setActiveConnection(connection);
-          clearPendingSession();
+          if (stillOwnsPendingSlot) clearPendingSession();
           setPolling(false);
           setPollingSession(null);
           setLoading(false);
         } else if (data.status === "rejected" || data.status === "expired") {
           setError(`Connection ${data.status}. Please try again.`);
-          clearPendingSession();
+          if (stillOwnsPendingSlot) clearPendingSession();
           setPolling(false);
           setPollingSession(null);
           setLoading(false);

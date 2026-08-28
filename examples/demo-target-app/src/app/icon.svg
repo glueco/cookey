@@ -1,0 +1,18 @@
+<svg width="64" height="64" viewBox="-44 -44 88 88" xmlns="http://www.w3.org/2000/svg">
+  <!-- Static favicon: the demo app's own Cookey mark ([d▪]). Geometry
+       mirrors DemoMark in src/components/DemoMark.tsx — change one,
+       change both. Ink on light tabs, paper on dark, via the embedded
+       media query (SVG favicons honour prefers-color-scheme). -->
+  <style>
+    .mark { color: #23221E; }
+    @media (prefers-color-scheme: dark) {
+      .mark { color: #E8E6DD; }
+    }
+  </style>
+  <g class="mark" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M -26 -30 H -38 V 30 H -26" />
+    <path d="M 26 -30 H 38 V 30 H 26" />
+  </g>
+  <text x="-8" y="13" class="mark" fill="currentColor" font-size="40" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">d</text>
+  <rect class="mark" x="8" y="3" width="10" height="10" fill="currentColor" />
+</svg>

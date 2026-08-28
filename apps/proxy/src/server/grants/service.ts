@@ -258,6 +258,13 @@ export async function approveGrant(
       redirectTarget.searchParams.set("status", "approved");
       redirectTarget.searchParams.set("app_id", updated.appId);
       redirectTarget.searchParams.set("gateway", gatewayUrl);
+      // Carry the grant id itself, not just the app id. A client that
+      // tracks "the pending session" in a single slot (one browser, one
+      // outstanding connect attempt) can have that slot overwritten by a
+      // second concurrent attempt before this redirect lands — the
+      // grant id in the URL lets it confirm THIS approval directly
+      // instead of trusting whatever's currently sitting in that slot.
+      redirectTarget.searchParams.set("grant_id", updated.id);
       return { grant: updated, redirectUrl: redirectTarget.toString() };
     }
     return { grant: updated };
@@ -273,7 +280,11 @@ export async function approveGrant(
     const code = await createClaimCode(updated.id);
     redirectTarget.searchParams.set("code", code);
     redirectTarget.searchParams.set("gateway", gatewayUrl);
-    return { grant: updated, redirectUrl: redirectTarget.toString() };
+    // Return the raw token alongside the redirect, not instead of it —
+    // the approval screen offers both so the owner can hand off however
+    // actually suits the app (a redirect the app can't do anything
+    // useful with is no better than not offering one at all).
+    return { grant: updated, redirectUrl: redirectTarget.toString(), token };
   }
 
   return { grant: updated, token };

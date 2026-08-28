@@ -285,7 +285,7 @@ function BearerPageInner() {
                 ) : (
                   <input
                     className="input-mono"
-                    placeholder="model name, e.g. llama-3.3-70b-versatile"
+                    placeholder="model name, e.g. openai/gpt-oss-20b"
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
                   />

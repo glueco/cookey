@@ -4,14 +4,16 @@ import { useState } from "react";
 import { CopyButton } from "@/components/ui";
 
 // ============================================
-// TOKEN COPY-PASTE SCREEN
-// Shown once at approval (and mirrored on the grant detail page until
-// first data-plane use). Per-language snippets for zero-SDK usage.
+// TOKEN DELIVERY DETAILS
+// The copy-paste half of the grant delivery panel (GrantDeliveryPanel):
+// the raw token, a live verify check, and per-language drop-in
+// snippets. Used both as the ONLY delivery option (no redirectUri on
+// the document) and as the "other ways to deliver this" fallback
+// alongside a redirect.
 // ============================================
 
 interface Props {
   token: string;
-  appName: string;
   boundResources: string[];
 }
 
@@ -20,7 +22,7 @@ interface VerifyState {
   message?: string;
 }
 
-export function TokenSuccessScreen({ token, appName, boundResources }: Props) {
+export function TokenDeliveryDetails({ token, boundResources }: Props) {
   const gateway =
     typeof window !== "undefined"
       ? window.location.origin
@@ -100,23 +102,7 @@ resp = client.chat.completions.create(
   const [openSnippet, setOpenSnippet] = useState(snippets[0].label);
 
   return (
-    <div className="space-y-6 animate-fade-in-up">
-      <div className="text-center">
-        <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-          </svg>
-        </div>
-        <p className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
-          {appName} is connected
-        </p>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5 max-w-md mx-auto leading-relaxed">
-          Paste this token into the app's configuration. It stays viewable on
-          the grant page until its first request — after that it can only be
-          revoked or regenerated.
-        </p>
-      </div>
-
+    <div className="space-y-6">
       <div>
         <p className="callout-warning mb-2">
           This is the only convenient moment to copy it. Store it in the app's
