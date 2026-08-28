@@ -1,5 +1,12 @@
 # @glueco/sdk
 
+## 1.0.1
+
+### Patch Changes
+
+- d65a6f1: Fix the publish workflow shipping an empty package. `1.0.0` was published without running the build first, so the tarball only contained `package.json` and `README.md` — `dist/` (what `main`/`module`/`types` all point at) never made it in, breaking the import for every consumer. The publish workflow now builds the SDK before `changeset publish`, and `prepublishOnly` does the same as a safety net for any manual publish.
+- d65a6f1: Remove `PluginClientFactory` and `PluginClient`, leftover type helpers for the old per-provider npm plugin-package pattern that connectors-as-data replaced. Neither was exported from the package entry point, so this isn't a breaking change for anyone actually importing from `@glueco/sdk`.
+
 ## 1.0.0
 
 ### Major Changes
